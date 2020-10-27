@@ -127,14 +127,20 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * subclasses, but both need nonfair try for trylock method.
          */
         final boolean nonfairTryAcquire(int acquires) {
+            // 获取当前线程对state的值
             final Thread current = Thread.currentThread();
             int c = getState();
+            // 如果state为0，说明当前没有线程持有锁，则尝试获取锁
+            // 获取成功直接返回true
             if (c == 0) {
                 if (compareAndSetState(0, acquires)) {
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             }
+            // 如果state不为0，说明当前有线程持有锁，判断是否为当前线程
+            // 如果是当前线程获取锁，则修改state
+            // 返回true
             else if (current == getExclusiveOwnerThread()) {
                 int nextc = c + acquires;
                 if (nextc < 0) // overflow
@@ -142,10 +148,13 @@ public class ReentrantLock implements Lock, java.io.Serializable {
                 setState(nextc);
                 return true;
             }
+            // 如果不属于上述两种情况，返回false
             return false;
         }
 
         protected final boolean tryRelease(int releases) {
+            // 将state递减releases
+            // 如果递减后为state为0，则设置exclusiveOwnerThread为null
             int c = getState() - releases;
             if (Thread.currentThread() != getExclusiveOwnerThread())
                 throw new IllegalMonitorStateException();
@@ -203,10 +212,12 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * acquire on failure.
          */
         final void lock() {
-
+            // 线程A、B同时获取锁
+            // 线程A获取锁成功，修改state为1，exclusiveOwnerThread为线程A
             if (compareAndSetState(0, 1))
                 setExclusiveOwnerThread(Thread.currentThread());
             else
+                // 获取锁失败(线程B走这里)
                 acquire(1);
         }
 

@@ -581,12 +581,18 @@ public abstract class AbstractQueuedSynchronizer
      * @return node's predecessor
      */
     private Node enq(final Node node) {
+        // 死循环，添加node节点到队尾
         for (;;) {
+            // 获取尾结点
             Node t = tail;
+            // 尾结点为null,队列为空，设置一个空node，然后tail、head都指向创建的空node
+            // 之后会继续for循环，再次for循环就不会走if操作
             if (t == null) { // Must initialize
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
+                // 将node节点添加到队尾，然后更新tail指向队尾
+                // (线程B加入到队列后，队列形状为：空node -- 线程B的node)
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
@@ -603,17 +609,30 @@ public abstract class AbstractQueuedSynchronizer
      * @return the new node
      */
     private Node addWaiter(Node mode) {
+        // 如果是排它锁，则mode为EXCLUSIVE(null)，如果是共享锁，则为SHARED(空node)
+        // (线程B此时是排它锁，所以mode为EXCLUSIVE)
+        // 把当前线程封装到一个node中并设置next节点为mode
         Node node = new Node(Thread.currentThread(), mode);
         // Try the fast path of enq; backup to full enq on failure
+        // tail不为空，说明队列不为空,将当前线程对应的node节点，添加到队列尾部
         Node pred = tail;
         if (pred != null) {
+            // 将当前线程节点的prev指向tail
+            // (线程B节点对应的prev就是tail)
             node.prev = pred;
+            // 更新tail为当前线程节点
+            // (tail指向线程B节点)
             if (compareAndSetTail(pred, node)) {
+                // 旧的tail节点的next指向当前线程节点
+                // (旧的tail节点的next指向线程B)
                 pred.next = node;
                 return node;
             }
         }
+        // 1.tail为空，说明队列为空
+        // 2.获取设置当前节点到队列尾部失败(说明tail节点被其他线程更新)
         enq(node);
+        // 返回当前线程对应的node节点
         return node;
     }
 
@@ -642,7 +661,9 @@ public abstract class AbstractQueuedSynchronizer
          * fails or if status is changed by waiting thread.
          */
         int ws = node.waitStatus;
+        // 如果当前节点状态 < 0 则更新为0
         if (ws < 0)
+
             compareAndSetWaitStatus(node, ws, 0);
 
         /*
@@ -651,6 +672,7 @@ public abstract class AbstractQueuedSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
+        // 如果当前节点后继节点为null，则从队尾开始向前找最后一个节点状态 < 0 的节点
         Node s = node.next;
         if (s == null || s.waitStatus > 0) {
             s = null;
@@ -658,6 +680,7 @@ public abstract class AbstractQueuedSynchronizer
                 if (t.waitStatus <= 0)
                     s = t;
         }
+        // s不为null，唤醒当前s中的线程
         if (s != null)
             LockSupport.unpark(s.thread);
     }
@@ -793,6 +816,9 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if thread should block
      */
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        // pred为node的前一个节点(以线程B为例，它的前一个节点为空node，会走到else里面，然后设置头结点为SIGNAL，然后返回false)
+
+        // 获取pred的状态，如果是SIGNAL返回true
         int ws = pred.waitStatus;
         if (ws == Node.SIGNAL)
             /*
@@ -800,7 +826,7 @@ public abstract class AbstractQueuedSynchronizer
              * to signal it, so it can safely park.
              */
             return true;
-        if (ws > 0) {
+        if (ws > 0) {// 如果大于0，说明pred被CANCELLED，继续向头节点低调获取第一个 <= 0 节点
             /*
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
@@ -815,6 +841,7 @@ public abstract class AbstractQueuedSynchronizer
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
              */
+            // 设置当前节点的前一个节点的状态为SIGNAL
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         }
         return false;
@@ -859,13 +886,24 @@ public abstract class AbstractQueuedSynchronizer
         try {
             boolean interrupted = false;
             for (;;) {
+                // 获取node的前一个节点
                 final Node p = node.predecessor();
+                // 如果前一个节点是头节点，则尝试获取锁
                 if (p == head && tryAcquire(arg)) {
+                    // 当前node获取锁成功
+                    // 设置头结点为当前node节点，然后清空当前node节点thread和prev,之后再断开头对当前node的next引用
+                    // 返回当前线程是否被中断标识符
                     setHead(node);
                     p.next = null; // help GC
                     failed = false;
                     return interrupted;
                 }
+                // 如下情况会走到这里：
+                // a.当前node的前一个节点不是头结点
+                // b.是头节点，但是获取锁失败(非公平锁出现多线程竞争)
+                // 1.执行shouldParkAfterFailedAcquire(以线程B为例，该方法会返回false,然后设置头结点状态为SIGNAL，之后继续for循环，再次执行该方法会返回true)
+                // 2.执行parkAndCheckInterrupt(线程B被挂起..就会卡到这里，直到被唤醒,然后返回当前线程是否被中断，继续执行3)
+                // 3.如果线程被中断，则设置interrupted为true,继续for循环(重复以上步骤，直到线程B获取锁，然后返回interrupted)
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
@@ -1195,6 +1233,17 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      */
     public final void acquire(int arg) {
+        // 获取锁失败之后(线程B为例)
+        // 1.执行tryAcquire，再次尝试获取锁,成功返回true,失败返回false(假设线程B获取失败)
+        //  1.1.获取锁成功直接返回
+        //  1.2.获取锁失败继续执行
+        // 2.执行addWaiter
+        //  2.1.将当前线程封装到一个node节点中，然后添加到队列尾部(队列的头结点为一个空node)
+        // 3.执行acquireQueued
+        //  3.1.获取锁成功，判断是否被中断标识
+        //  3.2.获取锁失败，内部会被挂起，直到被唤醒，再次尝试获取锁，直到成功
+        //  3.2.返回线程是否被中断标识符
+        //4.如果线程被中断，执行selfInterrupt，中断当前线程(TODO：线程在获取锁过程中即使被中断也不响应，直到获取锁成功才会响应？)
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
             selfInterrupt();
@@ -1258,9 +1307,12 @@ public abstract class AbstractQueuedSynchronizer
      * @return the value returned from {@link #tryRelease}
      */
     public final boolean release(int arg) {
+        // 尝试释放锁
         if (tryRelease(arg)) {
             Node h = head;
+            // 头结点不为null 并且状态不为0,也就是有后继节点(默认头结点无状态，当添加新节点时会将头节点状态设置为SIGNAL)
             if (h != null && h.waitStatus != 0)
+                // 唤醒后继节点
                 unparkSuccessor(h);
             return true;
         }
