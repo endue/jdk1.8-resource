@@ -1681,6 +1681,7 @@ public abstract class AbstractQueuedSynchronizer
      * @return true if is reacquiring
      */
     final boolean isOnSyncQueue(Node node) {
+        //
         if (node.waitStatus == Node.CONDITION || node.prev == null)
             return false;
         if (node.next != null) // If has successor, it must be on queue
@@ -1772,6 +1773,7 @@ public abstract class AbstractQueuedSynchronizer
         boolean failed = true;
         try {
             int savedState = getState();
+            // 释放锁
             if (release(savedState)) {
                 failed = false;
                 return savedState;
@@ -1900,13 +1902,18 @@ public abstract class AbstractQueuedSynchronizer
         private Node addConditionWaiter() {
             Node t = lastWaiter;
             // If lastWaiter is cancelled, clean out.
+            // 如果队列末尾不为空并且不是CONDITION
             if (t != null && t.waitStatus != Node.CONDITION) {
+                // 移除已中断的线程节点
                 unlinkCancelledWaiters();
                 t = lastWaiter;
             }
+            // 将调用await方法的线程封装为一个node,并且waitStatus为CONDITION
             Node node = new Node(Thread.currentThread(), Node.CONDITION);
+            // 队列为空，则头结点指定当前线程的node
             if (t == null)
                 firstWaiter = node;
+            // 更新尾结点
             else
                 t.nextWaiter = node;
             lastWaiter = node;
@@ -2084,9 +2091,12 @@ public abstract class AbstractQueuedSynchronizer
         public final void await() throws InterruptedException {
             if (Thread.interrupted())
                 throw new InterruptedException();
+            // 将当前线程封装为一个node节点，状态为CONDITION然后添加到队尾
             Node node = addConditionWaiter();
+            // 释放锁
             int savedState = fullyRelease(node);
             int interruptMode = 0;
+            // 检查当前节点是否在同步队列中
             while (!isOnSyncQueue(node)) {
                 LockSupport.park(this);
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)
