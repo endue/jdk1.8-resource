@@ -1407,8 +1407,12 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return true if is reacquiring
      */
     final boolean isOnSyncQueue(Node node) {
+        // 判断当前节点是否在AQS队列中
+        // 1.节点状态为CONDITION则一定不在，因为该状态只会在等待队列中
+        // 2.节点的前继节点为null则一定不在,因为如果是AQS队列，添加节点时一定会有一个空node作为head节点
         if (node.waitStatus == Node.CONDITION || node.prev == null)
             return false;
+        // 如果有后继节点，则一定在AQS队列中
         if (node.next != null) // If has successor, it must be on queue
             return true;
         /*
@@ -1419,6 +1423,7 @@ public abstract class AbstractQueuedLongSynchronizer
          * unless the CAS failed (which is unlikely), it will be
          * there, so we hardly ever traverse much.
          */
+        // 从AQS队列中查找当前node节点
         return findNodeFromTail(node);
     }
 
@@ -1497,7 +1502,9 @@ public abstract class AbstractQueuedLongSynchronizer
     final long fullyRelease(Node node) {
         boolean failed = true;
         try {
+            // 获取当前线程持有锁的数量
             long savedState = getState();
+            // 是否锁
             if (release(savedState)) {
                 failed = false;
                 return savedState;
@@ -1505,6 +1512,7 @@ public abstract class AbstractQueuedLongSynchronizer
                 throw new IllegalMonitorStateException();
             }
         } finally {
+            // 释放失败，修改当前线程对应节点的状态为CANCELLED，等待后续删除操作
             if (failed)
                 node.waitStatus = Node.CANCELLED;
         }
@@ -1628,16 +1636,19 @@ public abstract class AbstractQueuedLongSynchronizer
         private Node addConditionWaiter() {
             Node t = lastWaiter;
             // If lastWaiter is cancelled, clean out.
+            // 如果尾结点已经被取消，则清除队列中所有已取消的节点
             if (t != null && t.waitStatus != Node.CONDITION) {
                 unlinkCancelledWaiters();
                 t = lastWaiter;
             }
+            // 为当前线程创建一个node节点，然后添加到等待队列的尾部
             Node node = new Node(Thread.currentThread(), Node.CONDITION);
             if (t == null)
                 firstWaiter = node;
             else
                 t.nextWaiter = node;
             lastWaiter = node;
+            // 返回当前线程对应的node节点
             return node;
         }
 
@@ -1686,9 +1697,13 @@ public abstract class AbstractQueuedLongSynchronizer
          */
         private void unlinkCancelledWaiters() {
             Node t = firstWaiter;
-            Node trail = null;
+            Node trail = null;// 指向每次遍历时当前等待队列从头到尾中最新的状态为CONDITION的节点
             while (t != null) {
                 Node next = t.nextWaiter;
+                // 如果t的状态不为CONDITION则剔除t修改nextWaiter为null，这样会导致等待队列对应的单向链表断开，解决办法如下：
+                // 1.如果trail = null，则说明t就是头节点，更新头结点，因为trail会一直记录下当前循环中最新的CONDITION节点
+                // 2.如果trail != null，则需要将trail的nextWaiter修改为当前剔除节点t的nextWaiter
+                // 3.如果next为null，说明遍历结束，修改lastWaiter为trail
                 if (t.waitStatus != Node.CONDITION) {
                     t.nextWaiter = null;
                     if (trail == null)
@@ -1698,8 +1713,10 @@ public abstract class AbstractQueuedLongSynchronizer
                     if (next == null)
                         lastWaiter = trail;
                 }
+                // 如果t的状态为CONDITION，则将trail指向t
                 else
                     trail = t;
+                // 继续遍历下一个节点
                 t = next;
             }
         }
@@ -1810,11 +1827,15 @@ public abstract class AbstractQueuedLongSynchronizer
          * </ol>
          */
         public final void await() throws InterruptedException {
+            // 当前线程已中断则直接抛异常
             if (Thread.interrupted())
                 throw new InterruptedException();
+            // 将当前线程封装为一个node，然后填充到等待队列中
             Node node = addConditionWaiter();
+            // 释放当前线程所持有的锁、唤醒AQS队列中等待的一个线程，最后返回所持有锁的数量
             long savedState = fullyRelease(node);
             int interruptMode = 0;
+            //
             while (!isOnSyncQueue(node)) {
                 LockSupport.park(this);
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)

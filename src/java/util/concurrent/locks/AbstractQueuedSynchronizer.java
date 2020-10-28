@@ -1681,9 +1681,12 @@ public abstract class AbstractQueuedSynchronizer
      * @return true if is reacquiring
      */
     final boolean isOnSyncQueue(Node node) {
-        //
+        // 判断当前节点是否在AQS队列中
+        // 1.节点状态为CONDITION则一定不在，因为该状态只会在等待队列中
+        // 2.节点的前继节点为null则一定不在,因为如果是AQS队列，添加节点时一定会有一个空node作为head节点
         if (node.waitStatus == Node.CONDITION || node.prev == null)
             return false;
+        // 如果有后继节点，则一定在AQS队列中
         if (node.next != null) // If has successor, it must be on queue
             return true;
         /*
@@ -1694,6 +1697,7 @@ public abstract class AbstractQueuedSynchronizer
          * unless the CAS failed (which is unlikely), it will be
          * there, so we hardly ever traverse much.
          */
+        // 从AQS队列中查找当前node节点
         return findNodeFromTail(node);
     }
 
@@ -1724,6 +1728,9 @@ public abstract class AbstractQueuedSynchronizer
         /*
          * If cannot change waitStatus, the node has been cancelled.
          */
+        // 通过CAS将当前node节点的状态由CONDITION修改为0，
+        // 如果失败，说明该节点已经被CONDITION，则直接返回操作下一个节点
+        // 如果成功，说明已经将该节点从条件队列唤醒了，然后将当前node添加到AQS队列尾队，等待获取锁
         if (!compareAndSetWaitStatus(node, Node.CONDITION, 0))
             return false;
 
@@ -1733,8 +1740,10 @@ public abstract class AbstractQueuedSynchronizer
          * attempt to set waitStatus fails, wake up to resync (in which
          * case the waitStatus can be transiently and harmlessly wrong).
          */
+        // 如果等待队列node节点被唤醒，则添加到AQS队列尾部并返回当前节点的前继节点p
         Node p = enq(node);
         int ws = p.waitStatus;
+        // 如果前继节点状态 > 0，或者唤醒前继节点失败，则唤醒当前线程
         if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))
             LockSupport.unpark(node.thread);
         return true;
@@ -1748,6 +1757,9 @@ public abstract class AbstractQueuedSynchronizer
      * @return true if cancelled before the node was signalled
      */
     final boolean transferAfterCancelledWait(Node node) {
+        // 将当前等待队列中的节点waitStatus修改为0
+        // 如果在其他线程执行signal之前当前线程被唤醒，那么if操作肯定成功，因为当前线程此时一定在等待队列中，然后将当前节点添加到AQS队列的尾部，返回true
+        // 如果在其他线程执行signal之后当前线程被唤醒，那么if操作失败，因为当前线程对应的node节点已经进入AQS队列，继续往下执行，最终返回false
         if (compareAndSetWaitStatus(node, Node.CONDITION, 0)) {
             enq(node);
             return true;
@@ -1758,6 +1770,11 @@ public abstract class AbstractQueuedSynchronizer
          * incomplete transfer is both rare and transient, so just
          * spin.
          */
+        // Q: 一直自旋判断当前线程对应的node节点是否加入AQS队列，为啥？
+        // A：这种场景出现在其他线程执行signal之后当前线程被唤醒，举例A、B两个线程，假设A调用await被阻塞，然后B线程调用signal
+        // A线程被唤醒的前提是B线程调用了signal方法并且修改A线程对应的node节点的状态由 CONDITION --> 0
+        // 此时A线程执行上述if (compareAndSetWaitStatus(node, Node.CONDITION, 0))操作肯定失败，因为A线程对应node节点的状态已经为0
+        // 如果立即返回false，此时A线程对应node很可能还为加入到AQS队列中，所以这里需要自旋判断一下，之后返回false
         while (!isOnSyncQueue(node))
             Thread.yield();
         return false;
@@ -1928,6 +1945,7 @@ public abstract class AbstractQueuedSynchronizer
          */
         private void doSignal(Node first) {
             do {
+                // 遍历唤醒等待队列中第一个状态为CONDITION的节点
                 if ( (firstWaiter = first.nextWaiter) == null)
                     lastWaiter = null;
                 first.nextWaiter = null;
@@ -1940,8 +1958,11 @@ public abstract class AbstractQueuedSynchronizer
          * @param first (non-null) the first node on condition queue
          */
         private void doSignalAll(Node first) {
+            // 清空所有，所以等待队列的头尾节点都指向null
             lastWaiter = firstWaiter = null;
+            // 遍历等待队列，一个个唤醒
             do {
+                // first为队列头节点
                 Node next = first.nextWaiter;
                 first.nextWaiter = null;
                 transferForSignal(first);
@@ -1965,9 +1986,13 @@ public abstract class AbstractQueuedSynchronizer
          */
         private void unlinkCancelledWaiters() {
             Node t = firstWaiter;
-            Node trail = null;
+            Node trail = null;// 指向每次遍历时当前等待队列从头到尾中最新的状态为CONDITION的节点
             while (t != null) {
                 Node next = t.nextWaiter;
+                // 如果t的状态不为CONDITION则剔除t修改nextWaiter为null，这样会导致等待队列对应的单向链表断开，解决办法如下：
+                // 1.如果trail = null，则说明t就是头节点，更新头结点，因为trail会一直记录下当前循环中最新的CONDITION节点
+                // 2.如果trail != null，则需要将trail的nextWaiter修改为当前剔除节点t的nextWaiter
+                // 3.如果next为null，说明遍历结束，修改lastWaiter为trail
                 if (t.waitStatus != Node.CONDITION) {
                     t.nextWaiter = null;
                     if (trail == null)
@@ -2058,6 +2083,7 @@ public abstract class AbstractQueuedSynchronizer
          * 0 if not interrupted.
          */
         private int checkInterruptWhileWaiting(Node node) {
+            // 判断当前线程的中断标识符
             return Thread.interrupted() ?
                 (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
                 0;
@@ -2091,21 +2117,35 @@ public abstract class AbstractQueuedSynchronizer
         public final void await() throws InterruptedException {
             if (Thread.interrupted())
                 throw new InterruptedException();
-            // 将当前线程封装为一个node节点，状态为CONDITION然后添加到队尾
+            // 将当前线程封装为一个node节点，状态为CONDITION然后添加到等待队列尾部
             Node node = addConditionWaiter();
-            // 释放锁
+            // 释放当前线程持有的全部锁
             int savedState = fullyRelease(node);
             int interruptMode = 0;
-            // 检查当前节点是否在同步队列中
+            // 检查当前节点是否在AQS队列中
+            // Q：为什么需要校验当前线程对应的node节点是否出现在AQS队列中？
+            // A：因为前面addConditionWaiter将当前线程的node节点加入了等待队列，
+            // 执行到此的过程中，可能会有其他线程调用signal方法，将当前线程加入到AQS队列
             while (!isOnSyncQueue(node)) {
+                // 如果当前线程对应的node不在AQS队列中，则阻塞当前线程
                 LockSupport.park(this);
+                // 当前线程被唤醒后继续执行，判断当前线程是否在等待唤醒过程中被中断
+                // 1.返回0没有被中断，继续while循环，直到加入到AQS队列或发生2、3
+                // 2.在其他线程调用signal之前，当前线程被中断了，返回THROW_IE(-1)
+                // 3.在其他线程调用signal之后，当前线程被中断了，返回REINTERRUPT(1)
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)
                     break;
             }
+            // acquireQueued方法返回的是当前线程在抢占锁过程中是否被中断
+            // 这里针对的是当前线程在阻塞过程中没有被中断，上述1 或者 在其他线程调用signal之后，当前线程被中断了，上述3
+            // 此时需要将interruptMode标记为REINTERRUPT
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
                 interruptMode = REINTERRUPT;
+            // 当前线程对应的node节点加入到AQS队列后，其状态已经变为0，需要从等待队列中剔除
             if (node.nextWaiter != null) // clean up if cancelled
                 unlinkCancelledWaiters();
+            // 如果在其他线程调用signal之前当前线程被中断，会执行该方法，如果interruptMode是THROW_IE会抛出InterruptedException异常
+            // 如果在其他线程调用signal之后当前线程被中断，会执行该方法，如果interruptMode是REINTERRUPT会调用当前线程的Thread.currentThread().interrupt()方法
             if (interruptMode != 0)
                 reportInterruptAfterWait(interruptMode);
         }
