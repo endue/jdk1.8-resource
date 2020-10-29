@@ -984,14 +984,19 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireShared(int arg) {
+        // 1.执行addWaiter，为当前线程创建一个node节点并设置nextWaiter为一个SHARED的node节点
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
             boolean interrupted = false;
             for (;;) {
+                // 获取当前节点的前继节点
                 final Node p = node.predecessor();
+                // 前继节点是头结点，才去获取读锁，否则自旋
                 if (p == head) {
+                    // 再次尝试获取读锁
                     int r = tryAcquireShared(arg);
+                    // r >= 0 获取读锁成功
                     if (r >= 0) {
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
@@ -1333,9 +1338,9 @@ public abstract class AbstractQueuedSynchronizer
      */
     // 尝试获取共享锁
     public final void acquireShared(int arg) {
-        // 1. tryAcquireShared返回 < 0 获取读锁失败
-        // 2. doAcquireShared
+        // 1. tryAcquireShared返回 < 0 获取读锁失败执行doAcquireShared
         if (tryAcquireShared(arg) < 0)
+            // 获取共享锁失败将当前线程加入AQS队列
             doAcquireShared(arg);
     }
 
@@ -1393,7 +1398,9 @@ public abstract class AbstractQueuedSynchronizer
      *        and can represent anything you like.
      * @return the value returned from {@link #tryReleaseShared}
      */
+    // 释放共享锁
     public final boolean releaseShared(int arg) {
+        // 释放锁
         if (tryReleaseShared(arg)) {
             doReleaseShared();
             return true;
