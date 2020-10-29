@@ -614,7 +614,7 @@ public abstract class AbstractQueuedSynchronizer
         // 把当前线程封装到一个node中并设置next节点为mode
         Node node = new Node(Thread.currentThread(), mode);
         // Try the fast path of enq; backup to full enq on failure
-        // tail不为空，说明队列不为空,将当前线程对应的node节点，添加到队列尾部
+        // tail不为空，说明AQS队列不为空,将当前线程对应的node节点，添加到AQS队列尾部
         Node pred = tail;
         if (pred != null) {
             // 将当前线程节点的prev指向tail
@@ -1232,13 +1232,14 @@ public abstract class AbstractQueuedSynchronizer
      *        {@link #tryAcquire} but is otherwise uninterpreted and
      *        can represent anything you like.
      */
+    // 尝试获取独占锁
     public final void acquire(int arg) {
         // 获取锁失败之后(线程B为例)
         // 1.执行tryAcquire，再次尝试获取锁,成功返回true,失败返回false(假设线程B获取失败)
         //  1.1.获取锁成功直接返回
         //  1.2.获取锁失败继续执行
         // 2.执行addWaiter
-        //  2.1.将当前线程封装到一个node节点中，然后添加到队列尾部(队列的头结点为一个空node)
+        //  2.1.将当前线程封装到一个node节点中，然后添加到AQS队列尾部(队列的头结点为一个空node)
         // 3.执行acquireQueued
         //  3.1.获取锁成功，判断是否被中断标识
         //  3.2.获取锁失败，内部会被挂起，直到被唤醒，再次尝试获取锁，直到成功
@@ -1330,7 +1331,10 @@ public abstract class AbstractQueuedSynchronizer
      *        {@link #tryAcquireShared} but is otherwise uninterpreted
      *        and can represent anything you like.
      */
+    // 尝试获取共享锁
     public final void acquireShared(int arg) {
+        // 1. tryAcquireShared返回 < 0 获取读锁失败
+        // 2. doAcquireShared
         if (tryAcquireShared(arg) < 0)
             doAcquireShared(arg);
     }
@@ -1568,6 +1572,10 @@ public abstract class AbstractQueuedSynchronizer
         Node t = tail; // Read fields in reverse initialization order
         Node h = head;
         Node s;
+        // 1.返回true表示有前继节点
+        // 大的前提是 h != t ,当AQS队列存在一个nodeA节点时h = node（空），tail = nodeA
+        //  1.1. h != t && 头结点的下一个节点为null  AQS空队列
+        //  1.2. h != t && 头结点的下一个节点不为null && 头结点的下一个节点的线程不是当前线程 = AQS队列不为空，当前线程是头结点的下一个节点
         return h != t &&
             ((s = h.next) == null || s.thread != Thread.currentThread());
     }
