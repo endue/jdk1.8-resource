@@ -515,8 +515,8 @@ public class ReentrantReadWriteLock
                 return -1;
             int r = sharedCount(c);
             // readerShouldBlock判断是否应该阻止当前获取读锁操作
-            // 1.非公平锁 AQS队列中是否有排它锁，如果有返回true
-            // 2.公平锁 AQS队列中是否有前继节点，如果有返回true
+            // 1.非公平锁 AQS队列中第一个节点是否为排它锁，如果是返回true，先处理写锁
+            // 2.公平锁 AQS队列中是否有前继节点，如果有返回true，不可尝试加锁
             if (!readerShouldBlock() &&
                 r < MAX_COUNT &&
                 compareAndSetState(c, c + SHARED_UNIT)) {

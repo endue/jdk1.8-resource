@@ -730,6 +730,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     private void setHeadAndPropagate(Node node, int propagate) {
         Node h = head; // Record old head for check below
+        // 更新头节点
         setHead(node);
         /*
          * Try to signal next queued node if:
@@ -747,6 +748,7 @@ public abstract class AbstractQueuedSynchronizer
          * racing acquires/releases, so most need signals now or soon
          * anyway.
          */
+        // 唤醒后面等待共享锁的线程
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
@@ -904,6 +906,7 @@ public abstract class AbstractQueuedSynchronizer
                 // 1.执行shouldParkAfterFailedAcquire(以线程B为例，该方法会返回false,然后设置头结点状态为SIGNAL，之后继续for循环，再次执行该方法会返回true)
                 // 2.执行parkAndCheckInterrupt(线程B被挂起..就会卡到这里，直到被唤醒,然后返回当前线程是否被中断，继续执行3)
                 // 3.如果线程被中断，则设置interrupted为true,继续for循环(重复以上步骤，直到线程B获取锁，然后返回interrupted)
+                // 4.如果线程再次获取锁失败，依旧会阻塞，等待获取锁的线程唤醒
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
@@ -1006,6 +1009,8 @@ public abstract class AbstractQueuedSynchronizer
                         return;
                     }
                 }
+                // 当前线程阻塞，等待其他线程的唤醒
+                // 当唤醒后，继续执行for循环再次尝试获取锁
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
@@ -1318,7 +1323,7 @@ public abstract class AbstractQueuedSynchronizer
             Node h = head;
             // 头结点不为null 并且状态不为0,也就是有后继节点(默认头结点无状态，当添加新节点时会将头节点状态设置为SIGNAL)
             if (h != null && h.waitStatus != 0)
-                // 唤醒后继节点
+                // 唤醒h节点的后继节点
                 unparkSuccessor(h);
             return true;
         }
@@ -1579,7 +1584,7 @@ public abstract class AbstractQueuedSynchronizer
         Node t = tail; // Read fields in reverse initialization order
         Node h = head;
         Node s;
-        // 1.返回true表示有前继节点
+        // 1.返回true表示有其他节点
         // 大的前提是 h != t ,当AQS队列存在一个nodeA节点时h = node（空），tail = nodeA
         //  1.1. h != t && 头结点的下一个节点为null  AQS空队列
         //  1.2. h != t && 头结点的下一个节点不为null && 头结点的下一个节点的线程不是当前线程 = AQS队列不为空，当前线程是头结点的下一个节点
