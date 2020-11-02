@@ -730,7 +730,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     private void setHeadAndPropagate(Node node, int propagate) {
         Node h = head; // Record old head for check below
-        // 更新头节点
+        // 更新头节点为当前节点
         setHead(node);
         /*
          * Try to signal next queued node if:
@@ -748,7 +748,11 @@ public abstract class AbstractQueuedSynchronizer
          * racing acquires/releases, so most need signals now or soon
          * anyway.
          */
-        // 唤醒后面等待共享锁的线程
+        // propagate > 0
+        // h == null
+        // h.waitStatus < 0
+        // (h = head) == null
+        // h.waitStatus < 0
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
@@ -764,6 +768,7 @@ public abstract class AbstractQueuedSynchronizer
      *
      * @param node the node
      */
+    // 取消竞争锁
     private void cancelAcquire(Node node) {
         // Ignore if node doesn't exist
         if (node == null)
@@ -772,6 +777,11 @@ public abstract class AbstractQueuedSynchronizer
         node.thread = null;
 
         // Skip cancelled predecessors
+        // 遍历AQS队列
+        // 从当前节点的前驱节点开始，直到遇到 waitStatus <= 0 节点后跳出循环
+        // 也就是将CANCELLED状态的节点从队列中删除
+        // 此时node的prev指向了它前面的第一个waitStatus <= 0的节点，如A节点
+        // 但是A节点的next还是指向原来的节点，如B节点,注意这个B节点状态是CANCELLED的
         Node pred = node.prev;
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
@@ -779,31 +789,43 @@ public abstract class AbstractQueuedSynchronizer
         // predNext is the apparent node to unsplice. CASes below will
         // fail if not, in which case, we lost race vs another cancel
         // or signal, so no further action is necessary.
+        // 获取B节点
         Node predNext = pred.next;
 
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
+        // 设置当前节点状态为CANCELLED
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
+        // 如果当前节点已经是AQS队列尾结点了，由于被取消了，所以需要更新尾结点
+        // 更新尾结点指向A，然后设置A节点的next节点为null(因为B节点状态也是CANCELLED的)
         if (node == tail && compareAndSetTail(node, pred)) {
             compareAndSetNext(pred, predNext, null);
         } else {
+            // 如果当前节点不是尾结点，判断是否需要唤醒后继节点
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
             int ws;
+            // 唤醒当前节点的后继节点要求当前节点的前驱节点是头结点
+            // 否则当前节点的前驱节点不是头结点，也就不需要唤醒它的后继节点
+            // 这时需要更新当前节点的后继和前驱节点的指向关系
+            //  在更新关系前，需要判断当前节点的前驱节点的状态，如果 <= 0 需要设置为SIGNAL，以便改变指向关系后之后能唤醒当前节点的后继节点
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
                  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
+                // 更新指向关系
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
                 unparkSuccessor(node);
             }
-
+            // 此时当前节点的next指向自己
+            // node、predNext节点的prev 指向 prev节点
+            // prev节点指向当前节点之前的next节点
             node.next = node; // help GC
         }
     }
