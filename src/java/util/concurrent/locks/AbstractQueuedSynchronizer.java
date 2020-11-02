@@ -379,20 +379,26 @@ public abstract class AbstractQueuedSynchronizer
      */
     static final class Node {
         /** Marker to indicate a node is waiting in shared mode */
+        // 标记节点在共享模式下
         static final Node SHARED = new Node();
         /** Marker to indicate a node is waiting in exclusive mode */
+        // 标记节点在独占模式下
         static final Node EXCLUSIVE = null;
 
         /** waitStatus value to indicate thread has cancelled */
+        // 标记节点线程已被取消
         static final int CANCELLED =  1;
         /** waitStatus value to indicate successor's thread needs unparking */
+        // 标记当前节点的后继节点对应的线程需要唤醒
         static final int SIGNAL    = -1;
         /** waitStatus value to indicate thread is waiting on condition */
+        // 标记节点线程等待condition
         static final int CONDITION = -2;
         /**
          * waitStatus value to indicate the next acquireShared should
          * unconditionally propagate
          */
+        // 标记下一次获取共享锁后应该无条件的传递
         static final int PROPAGATE = -3;
 
         /**
@@ -429,6 +435,7 @@ public abstract class AbstractQueuedSynchronizer
          * CONDITION for condition nodes.  It is modified using CAS
          * (or when possible, unconditional volatile writes).
          */
+        // 上述四种状态，默认0
         volatile int waitStatus;
 
         /**
@@ -442,6 +449,7 @@ public abstract class AbstractQueuedSynchronizer
          * cancelled thread never succeeds in acquiring, and a thread only
          * cancels itself, not any other node.
          */
+        // 前驱节点
         volatile Node prev;
 
         /**
@@ -457,12 +465,14 @@ public abstract class AbstractQueuedSynchronizer
          * point to the node itself instead of null, to make life
          * easier for isOnSyncQueue.
          */
+        // 后继节点
         volatile Node next;
 
         /**
          * The thread that enqueued this node.  Initialized on
          * construction and nulled out after use.
          */
+        // node对应的线程
         volatile Thread thread;
 
         /**
@@ -475,11 +485,13 @@ public abstract class AbstractQueuedSynchronizer
          * we save a field by using special value to indicate shared
          * mode.
          */
+        // 用在condition队列，存储当前node的后继节点
         Node nextWaiter;
 
         /**
          * Returns true if node is waiting in shared mode.
          */
+        // 当前node是否为共享模式
         final boolean isShared() {
             return nextWaiter == SHARED;
         }
@@ -491,6 +503,7 @@ public abstract class AbstractQueuedSynchronizer
          *
          * @return the predecessor of this node
          */
+        // 获取当前节点的前驱节点
         final Node predecessor() throws NullPointerException {
             Node p = prev;
             if (p == null)
@@ -519,17 +532,20 @@ public abstract class AbstractQueuedSynchronizer
      * If head exists, its waitStatus is guaranteed not to be
      * CANCELLED.
      */
+    // AQS队列头结点
     private transient volatile Node head;
 
     /**
      * Tail of the wait queue, lazily initialized.  Modified only via
      * method enq to add new wait node.
      */
+    // AQS队列尾结点
     private transient volatile Node tail;
 
     /**
      * The synchronization state.
      */
+    // 同步状态
     private volatile int state;
 
     /**
@@ -629,6 +645,7 @@ public abstract class AbstractQueuedSynchronizer
                 return node;
             }
         }
+        // 执行到这里可能两个原因：
         // 1.tail为空，说明队列为空
         // 2.获取设置当前节点到队列尾部失败(说明tail节点被其他线程更新)
         enq(node);
@@ -910,7 +927,7 @@ public abstract class AbstractQueuedSynchronizer
         try {
             boolean interrupted = false;
             for (;;) {
-                // 获取node的前一个节点
+                // 获取node的前一个节点（z这里可能会抛出空指针一次）
                 final Node p = node.predecessor();
                 // 如果前一个节点是头节点，则尝试获取锁
                 if (p == head && tryAcquire(arg)) {
@@ -934,7 +951,9 @@ public abstract class AbstractQueuedSynchronizer
                     interrupted = true;
             }
         } finally {
+            // 获取当前节点的前驱节点失败，
             if (failed)
+                // 取消获取资源
                 cancelAcquire(node);
         }
     }
@@ -1023,6 +1042,7 @@ public abstract class AbstractQueuedSynchronizer
                     int r = tryAcquireShared(arg);
                     // r >= 0 获取读锁成功
                     if (r >= 0) {
+                        // 设置头结点并唤醒后续共享锁
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
                         if (interrupted)

@@ -86,7 +86,7 @@ import java.util.Collection;
  *     }
  *   }
  * }}</pre>
- *
+ *q
  * <p>In addition to implementing the {@link Lock} interface, this
  * class defines a number of {@code public} and {@code protected}
  * methods for inspecting the state of the lock.  Some of these
