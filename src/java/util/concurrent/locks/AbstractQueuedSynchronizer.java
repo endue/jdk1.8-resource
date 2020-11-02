@@ -707,6 +707,7 @@ public abstract class AbstractQueuedSynchronizer
      * propagation. (Note: For exclusive mode, release just amounts
      * to calling unparkSuccessor of head if it needs signal.)
      */
+    // 释放共享锁
     private void doReleaseShared() {
         /*
          * Ensure that a release propagates, even if there are other
@@ -719,6 +720,7 @@ public abstract class AbstractQueuedSynchronizer
          * unparkSuccessor, we need to know if CAS to reset status
          * fails, if so rechecking.
          */
+        // todo 待研究
         for (;;) {
             Node h = head;
             if (h != null && h != tail) {
@@ -1749,6 +1751,7 @@ public abstract class AbstractQueuedSynchronizer
         if (node.waitStatus == Node.CONDITION || node.prev == null)
             return false;
         // 如果有后继节点，则一定在AQS队列中
+        // 因为等待队列中的节点不用next，用的是nextWaiter
         if (node.next != null) // If has successor, it must be on queue
             return true;
         /*
@@ -1760,6 +1763,8 @@ public abstract class AbstractQueuedSynchronizer
          * there, so we hardly ever traverse much.
          */
         // 从AQS队列中查找当前node节点
+        // 执行该方法时因为存在一种可能就是当前节点在往AQS添加的时候失败
+        // 所以需要遍历AQS队列
         return findNodeFromTail(node);
     }
 
@@ -1791,7 +1796,7 @@ public abstract class AbstractQueuedSynchronizer
          * If cannot change waitStatus, the node has been cancelled.
          */
         // 通过CAS将当前node节点的状态由CONDITION修改为0，
-        // 如果失败，说明该节点已经被CONDITION，则直接返回操作下一个节点
+        // 如果失败，说明该节点已经被CONDITION，则直接返回操作下一个节点,因为等待队列中节点的状态是CONDITION或CANCELLED
         // 如果成功，说明已经将该节点从条件队列唤醒了，然后将当前node添加到AQS队列尾队，等待获取锁
         if (!compareAndSetWaitStatus(node, Node.CONDITION, 0))
             return false;
