@@ -1782,10 +1782,10 @@ public abstract class AbstractQueuedSynchronizer
          * attempt to set waitStatus fails, wake up to resync (in which
          * case the waitStatus can be transiently and harmlessly wrong).
          */
-        // 如果等待队列node节点被唤醒，则添加到AQS队列尾部并返回当前节点的前继节点p
+        // 如果等待队列node节点被唤醒，则添加到AQS队列尾部并返回当前节点的前驱节点p
         Node p = enq(node);
         int ws = p.waitStatus;
-        // 如果前继节点状态 > 0，或者唤醒前继节点失败，则唤醒当前线程
+        // 如果前驱节点状态 > 0(表示被取消)，或者设置前驱节点状态为SIGNAL失败，则直接唤醒当前节点的线程
         if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))
             LockSupport.unpark(node.thread);
         return true;
@@ -1942,9 +1942,12 @@ public abstract class AbstractQueuedSynchronizer
      */
     public class ConditionObject implements Condition, java.io.Serializable {
         private static final long serialVersionUID = 1173984872572414699L;
+        // 队列结果为单向链表
         /** First node of condition queue. */
+        // 条件队列的头结点
         private transient Node firstWaiter;
         /** Last node of condition queue. */
+        // 条件队列的尾结点
         private transient Node lastWaiter;
 
         /**
@@ -1958,6 +1961,7 @@ public abstract class AbstractQueuedSynchronizer
          * Adds a new waiter to wait queue.
          * @return its new wait node
          */
+        // 添加一个等待线程到等待队列中
         private Node addConditionWaiter() {
             Node t = lastWaiter;
             // If lastWaiter is cancelled, clean out.
@@ -2179,7 +2183,7 @@ public abstract class AbstractQueuedSynchronizer
                     break;
             }
             // acquireQueued方法返回的是当前线程在抢占锁过程中是否被中断
-            // 这里针对的是当前线程在阻塞过程中没有被中断，上述1 或者 在其他线程调用signal之后，当前线程被中断了，上述3
+            // 这里针对的是当前线程在阻塞过程中没有被中断，上述1 或者 在其他线程调用signal之后，当前线程被中断了，上述3(acquireQueued方法返回true表示当前节点被中断了)
             // 此时需要将interruptMode标记为REINTERRUPT
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
                 interruptMode = REINTERRUPT;
