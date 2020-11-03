@@ -158,9 +158,11 @@ public class CountDownLatch {
      * Synchronization control For CountDownLatch.
      * Uses AQS state to represent count.
      */
+    // 内部基于AQS的共享锁实现
+    // 所以需要实现AQS内部获取和释放共享锁的两个方法
     private static final class Sync extends AbstractQueuedSynchronizer {
         private static final long serialVersionUID = 4982264981922014374L;
-
+        // 设置锁状态标志位的值 = count
         Sync(int count) {
             setState(count);
         }
@@ -168,11 +170,12 @@ public class CountDownLatch {
         int getCount() {
             return getState();
         }
-
+        // 获取共享锁
         protected int tryAcquireShared(int acquires) {
+            // 如果锁状态标志位为0，返回1表示获取锁成功，-1表示失败
             return (getState() == 0) ? 1 : -1;
         }
-
+        // 释放共享锁
         protected boolean tryReleaseShared(int releases) {
             // Decrement count; signal when transition to zero
             for (;;) {
@@ -195,8 +198,10 @@ public class CountDownLatch {
      *        before threads can pass through {@link #await}
      * @throws IllegalArgumentException if {@code count} is negative
      */
+    // 默认构造方法，count为初始化锁的数量
     public CountDownLatch(int count) {
         if (count < 0) throw new IllegalArgumentException("count < 0");
+        // 使用自己的内部类sync
         this.sync = new Sync(count);
     }
 
@@ -227,6 +232,8 @@ public class CountDownLatch {
      * @throws InterruptedException if the current thread is interrupted
      *         while waiting
      */
+    // 获取锁
+    // 底层获取锁状态标志位，如果state == 1则获取成功，否则获取失败将当前线程阻塞
     public void await() throws InterruptedException {
         sync.acquireSharedInterruptibly(1);
     }
@@ -287,6 +294,8 @@ public class CountDownLatch {
      *
      * <p>If the current count equals zero then nothing happens.
      */
+    // 释放锁
+    // 底层递减锁状态标志位，如果state == 0 ，那么已经完全释放则唤醒等待的线程
     public void countDown() {
         sync.releaseShared(1);
     }
