@@ -153,6 +153,13 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  * @since 1.5
  * @author Doug Lea
  */
+
+/**
+ * 该类内部基于共享锁实现
+ * 每次初始化时赋值一个数值到锁状态标志位state
+ * 之后每次countDown都是走的释放锁逻辑，判断state是否为0，如果为0唤醒AQS队列中的线程
+ * 而await走的是获取锁的逻辑，判断state是否为0，如果不为0，则加入AQS队列中
+ */
 public class CountDownLatch {
     /**
      * Synchronization control For CountDownLatch.
