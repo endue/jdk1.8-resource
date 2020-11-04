@@ -159,6 +159,7 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  * 每次初始化时赋值一个数值到锁状态标志位state
  * 之后每次countDown都是走的释放锁逻辑，判断state是否为0，如果为0唤醒AQS队列中的线程
  * 而await走的是获取锁的逻辑，判断state是否为0，如果不为0，则加入AQS队列中
+ * 这里也可以看出CountDownLatch是一次性用品，用完就用完，如果在使用需要再次初始化
  */
 public class CountDownLatch {
     /**
