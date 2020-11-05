@@ -94,9 +94,11 @@ public class CopyOnWriteArrayList<E>
     private static final long serialVersionUID = 8673264195747942595L;
 
     /** The lock protecting all mutators */
+    // 内部锁
     final transient ReentrantLock lock = new ReentrantLock();
 
     /** The array, accessed only via getArray/setArray. */
+    // 内部基于数组实现，注意被volatile修饰
     private transient volatile Object[] array;
 
     /**
@@ -117,6 +119,7 @@ public class CopyOnWriteArrayList<E>
     /**
      * Creates an empty list.
      */
+    // 默认初始化时，数组大小是0
     public CopyOnWriteArrayList() {
         setArray(new Object[0]);
     }
@@ -129,6 +132,7 @@ public class CopyOnWriteArrayList<E>
      * @param c the collection of initially held elements
      * @throws NullPointerException if the specified collection is null
      */
+    // 构造方法，参数为一个Collection相关子类
     public CopyOnWriteArrayList(Collection<? extends E> c) {
         Object[] elements;
         if (c.getClass() == CopyOnWriteArrayList.class)
@@ -149,6 +153,7 @@ public class CopyOnWriteArrayList<E>
      *        internal array)
      * @throws NullPointerException if the specified array is null
      */
+    // 构造方法，参数为一个数组
     public CopyOnWriteArrayList(E[] toCopyIn) {
         setArray(Arrays.copyOf(toCopyIn, toCopyIn.length, Object[].class));
     }
@@ -431,6 +436,9 @@ public class CopyOnWriteArrayList<E>
      * @param e element to be appended to this list
      * @return {@code true} (as specified by {@link Collection#add})
      */
+    // 加锁操作
+    // 创建一个新数组，长度 = 原长度 + 1
+    // 复制数据，然后修改array引用
     public boolean add(E e) {
         final ReentrantLock lock = this.lock;
         lock.lock();
