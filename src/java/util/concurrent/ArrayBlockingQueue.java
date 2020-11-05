@@ -91,15 +91,19 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     private static final long serialVersionUID = -817911632652898426L;
 
     /** The queued items */
+    // 队列,初始化时就固定大小了
     final Object[] items;
 
     /** items index for next take, poll, peek or remove */
+    // 记录当前可取数据的开始位置
     int takeIndex;
 
     /** items index for next put, offer, or add */
+    // 记录当前可放数据的开始位置
     int putIndex;
 
     /** Number of elements in the queue */
+    // 记录当前数据总数
     int count;
 
     /*
@@ -108,12 +112,15 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      */
 
     /** Main lock guarding all access */
+    // 锁
     final ReentrantLock lock;
 
     /** Condition for waiting takes */
+    // 等待队列，唤醒取数据的线程
     private final Condition notEmpty;
 
     /** Condition for waiting puts */
+    // 等待队列，唤醒放数据的线程
     private final Condition notFull;
 
     /**
@@ -121,6 +128,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * are known not to be any.  Allows queue operations to update
      * iterator state.
      */
+    // 迭代器
     transient Itrs itrs = null;
 
     // Internal helper methods
@@ -154,9 +162,15 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * Inserts element at current put position, advances, and signals.
      * Call only when holding lock.
      */
+    // 入队
     private void enqueue(E x) {
         // assert lock.getHoldCount() == 1;
         // assert items[putIndex] == null;
+        // 1 获取当前的数组
+        // 2 将数据保存到putIndex的位置
+        // 3.putIndex + 1操作，之后putIndex大小为数组长度，那么下次放数据的位置应该为数组的开始位置
+        // 4.记录数据总量+1
+        // 5.唤醒取数据的线程
         final Object[] items = this.items;
         items[putIndex] = x;
         if (++putIndex == items.length)
@@ -169,9 +183,17 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * Extracts element at current take position, advances, and signals.
      * Call only when holding lock.
      */
+    // 出队
     private E dequeue() {
         // assert lock.getHoldCount() == 1;
         // assert items[takeIndex] != null;
+        // 1 获取当前的数组
+        // 2 将takeIndex位置的数据取出
+        // 3 将takeIndex位置置空
+        // 4 takeIndex++，之后takeIndex大小为数组长度，那么下次取数据的位置应该为数组的开始位置
+        // 5 记录数据总量 - 1
+        // 6 todo 出对这里调用itrs？
+        // 7 唤醒取数据的线程
         final Object[] items = this.items;
         @SuppressWarnings("unchecked")
         E x = (E) items[takeIndex];
@@ -308,6 +330,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws IllegalStateException if this queue is full
      * @throws NullPointerException if the specified element is null
      */
+    // add调用父类add方法,父类add方法调用offer方法,本类重写offer方法
+    // 所以add方法同offer方法
     public boolean add(E e) {
         return super.add(e);
     }
@@ -321,6 +345,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      *
      * @throws NullPointerException if the specified element is null
      */
+    // offer方法不阻塞等待
+    // 有空间就加入,返回ture、没空间就直接返回false
     public boolean offer(E e) {
         checkNotNull(e);
         final ReentrantLock lock = this.lock;
@@ -344,6 +370,9 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws InterruptedException {@inheritDoc}
      * @throws NullPointerException {@inheritDoc}
      */
+    // put方法不同offer(或add)方法，它是有阻塞等待的
+    // 如果队列没空间就阻塞当前线程
+    // 如果队列有空间就直接放入数据
     public void put(E e) throws InterruptedException {
         checkNotNull(e);
         final ReentrantLock lock = this.lock;
@@ -365,6 +394,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws InterruptedException {@inheritDoc}
      * @throws NullPointerException {@inheritDoc}
      */
+    // 带时间的offer操作，等待一段时间后如果还没有空间就返回false
     public boolean offer(E e, long timeout, TimeUnit unit)
         throws InterruptedException {
 
@@ -384,7 +414,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
             lock.unlock();
         }
     }
-
+    // poll拉取数据，不阻塞等待
+    // 如果count等于0直接返回null
     public E poll() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -394,7 +425,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
             lock.unlock();
         }
     }
-
+    // talk拉取数据，带阻塞等待
     public E take() throws InterruptedException {
         final ReentrantLock lock = this.lock;
         lock.lockInterruptibly();
@@ -407,6 +438,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         }
     }
 
+    // poll拉取数据，不阻塞等待
     public E poll(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
         final ReentrantLock lock = this.lock;
@@ -422,7 +454,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
             lock.unlock();
         }
     }
-
+    // 查看takeIndex位置的元素，存在就返回但是并不删除
     public E peek() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -440,6 +472,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      *
      * @return the number of elements in this queue
      */
+    // 返回大小
     public int size() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -463,6 +496,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * because it may be the case that another thread is about to
      * insert or remove an element.
      */
+    // 计算剩余容量
     public int remainingCapacity() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -490,13 +524,17 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @param o element to be removed from this queue, if present
      * @return {@code true} if this queue changed as a result of the call
      */
+    // 删除某个元素
     public boolean remove(Object o) {
         if (o == null) return false;
         final Object[] items = this.items;
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 如果存在元素
             if (count > 0) {
+                // 局部变量i保存takeIndex的值，局部变量putIndex保存putIndex
+                // 从i位置开始获取值，当i = 数组长度时，将i置为0直到i=putIndex跳出循环
                 final int putIndex = this.putIndex;
                 int i = takeIndex;
                 do {
