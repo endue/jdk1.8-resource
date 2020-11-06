@@ -79,6 +79,11 @@ import java.util.Spliterator;
  * @author Doug Lea
  * @param <E> the type of elements held in this collection
  */
+
+/**
+ * 有界的数组，支持并发操作，依赖于锁机制
+ * 读和放分别依赖两个指针来操作
+ */
 public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         implements BlockingQueue<E>, java.io.Serializable {
 
