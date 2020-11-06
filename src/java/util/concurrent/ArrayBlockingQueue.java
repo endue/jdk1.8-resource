@@ -212,14 +212,20 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * Utility for remove(Object) and iterator.remove.
      * Call only when holding lock.
      */
+    // 分2种情况：
+    // 1：删除的位置 = takeIndex，如takeIndex是2，删除的位置也是2，那就把位置2的数据置为null,之后重新计算takeIndex为3，如果数组长度为3，talkIndex需要改为0。
+    // 2：删除的位置 != takeIndex，找到要删除元素的下一个，移动删除元素和putIndex之间的数据
     void removeAt(final int removeIndex) {
         // assert lock.getHoldCount() == 1;
         // assert items[removeIndex] != null;
         // assert removeIndex >= 0 && removeIndex < items.length;
         final Object[] items = this.items;
+        // 1.删除位置正好等于下次要拿数据的位置
         if (removeIndex == takeIndex) {
             // removing front item; just advance
+            // 将删除位置的内容置为null
             items[takeIndex] = null;
+            // 将下次要取数据的位置 + 1
             if (++takeIndex == items.length)
                 takeIndex = 0;
             count--;
@@ -230,6 +236,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
 
             // slide over all others up through putIndex.
             final int putIndex = this.putIndex;
+            // 从删除位置开始移动数据
             for (int i = removeIndex;;) {
                 int next = i + 1;
                 if (next == items.length)
@@ -800,6 +807,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      *
      * @return an iterator over the elements in this queue in proper sequence
      */
+    // 遍历
     public Iterator<E> iterator() {
         return new Itr();
     }
@@ -1061,12 +1069,15 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      */
     private class Itr implements Iterator<E> {
         /** Index to look for new nextItem; NONE at end */
+        // 记录nextIndex的下一个位置
         private int cursor;
 
         /** Element to be returned by next call to next(); null if none */
+        // 记录下一个要遍历的元素
         private E nextItem;
 
         /** Index of nextItem; NONE if none, REMOVED if removed elsewhere */
+        // 记录下一个要遍历的位置
         private int nextIndex;
 
         /** Last element returned; null if none or not detached. */
@@ -1092,13 +1103,16 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
 
         /** Special value for prevTakeIndex indicating "detached mode" */
         private static final int DETACHED = -3;
-
+        // Itr构造器
         Itr() {
             // assert lock.getHoldCount() == 0;
+            // 在开始遍历前，将lastRet置为-1
             lastRet = NONE;
             final ReentrantLock lock = ArrayBlockingQueue.this.lock;
+            // 获取锁
             lock.lock();
             try {
+                // 数组为空
                 if (count == 0) {
                     // assert itrs == null;
                     cursor = NONE;
@@ -1223,6 +1237,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
          */
         public boolean hasNext() {
             // assert lock.getHoldCount() == 0;
+            // nextItem为空，说明队列已没有元素
             if (nextItem != null)
                 return true;
             noNext();
