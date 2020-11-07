@@ -177,6 +177,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      * optimization.
      */
 
+    // 单项链表的结构
     private static class Node<E> {
         volatile E item;
         volatile Node<E> next;
@@ -252,6 +253,8 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
     /**
      * Creates a {@code ConcurrentLinkedQueue} that is initially empty.
      */
+    // 无参构造方法
+    // head、tail指向一个空Node
     public ConcurrentLinkedQueue() {
         head = tail = new Node<E>(null);
     }
@@ -267,6 +270,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      */
     public ConcurrentLinkedQueue(Collection<? extends E> c) {
         Node<E> h = null, t = null;
+        // 遍历集合，里面的元素不允许为null
         for (E e : c) {
             checkNotNull(e);
             Node<E> newNode = new Node<E>(e);
@@ -277,6 +281,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                 t = newNode;
             }
         }
+        // 防止c是个空集合
         if (h == null)
             h = t = new Node<E>(null);
         head = h;
@@ -293,6 +298,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      * @return {@code true} (as specified by {@link Collection#add})
      * @throws NullPointerException if the specified element is null
      */
+    // add方法调用的offer方法
     public boolean add(E e) {
         return offer(e);
     }
@@ -323,31 +329,52 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      * @return {@code true} (as specified by {@link Queue#offer})
      * @throws NullPointerException if the specified element is null
      */
+    // offer
     public boolean offer(E e) {
         checkNotNull(e);
+        // 封装为一个新元素
         final Node<E> newNode = new Node<E>(e);
-
+        // 从尾结点开始遍历
+        // t局部变量记录tail
         for (Node<E> t = tail, p = t;;) {
             Node<E> q = p.next;
+            // p的next为null
+            // p此时是last node
             if (q == null) {
                 // p is last node
+                // 尝试CAS操作更新p的next为新节点
                 if (p.casNext(null, newNode)) {
                     // Successful CAS is the linearization point
                     // for e to become an element of this queue,
                     // and for newNode to become "live".
+                    // p节点是当前最新的last node，如果p和tail节点不相等
+                    // 那么两者之间至少有一个Node节点再加上p后面添加的新元素，此时差值最少为2
+                    // 这时更新tail节点
                     if (p != t) // hop two nodes at a time
+                        // 这个CAS操作是运行失败的
                         casTail(t, newNode);  // Failure is OK.
+                    // 元素添加成功，返回true
                     return true;
                 }
                 // Lost CAS race to another thread; re-read next
             }
+            // 当前节点p被删除了
+            // p此时是 recycled node
             else if (p == q)
                 // We have fallen off list.  If tail is unchanged, it
                 // will also be off-list, in which case we need to
                 // jump to head, from which all live nodes are always
                 // reachable.  Else the new tail is a better bet.
+                // 判断旧tail是否等于新tail
+                //  true：更新p为最新的tail
+                //  false: 更新p为头节点
                 p = (t != (t = tail)) ? t : head;
+            // p不是last node也不是recycled node
             else
+                // 场景分析：
+                //   3.1 p != t && t != 最新tail ，p和t都被设置为最新的tail
+                //   3.2 p != t && t == 最新tail ，p指向q也就是后移
+                //   3.3 p == t ,p指向q也就是后移，t此时是最新的tail，
                 // Check for tail updates after two hops.
                 p = (p != t && t != (t = tail)) ? t : q;
         }
@@ -356,22 +383,33 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
     public E poll() {
         restartFromHead:
         for (;;) {
+            // h局部变量指向head
+            // 移动p节点查找第一个元素然后出队，出队的元素就是p指向的节点，之后判断p和h是否相等，更新head
             for (Node<E> h = head, p = h, q;;) {
                 E item = p.item;
-
+                // 1.头结点的item不为null &&cas修改头结点成功
                 if (item != null && p.casItem(item, null)) {
                     // Successful CAS is the linearization point
                     // for item to be removed from this queue.
+                    // p不等于h，更新head为p或者p的next
+                    //这里保证p的后继存在才将头结点更新为p的后继
+                    //否则头结点更新为p本身，因为p后面没有节点了
                     if (p != h) // hop two nodes at a time
                         updateHead(h, ((q = p.next) != null) ? q : p);
                     return item;
                 }
+                //执行到这里，有两种情况：
+                //1. p的item发现为null
+                //2. p的item发现不为null，但CAS失败。说明别的线程抢先了出队操作,那么p的item也会为null的
+                //如果p是last node，说明找到最后都没有找到有效节点
                 else if ((q = p.next) == null) {
                     updateHead(h, p);
                     return null;
                 }
+                // p的后继节点为自己，p已经被删除，重新获取头结点
                 else if (p == q)
                     continue restartFromHead;
+                // 继续寻找节点
                 else
                     p = q;
             }
