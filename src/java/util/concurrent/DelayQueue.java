@@ -67,10 +67,12 @@ import java.util.*;
  * @author Doug Lea
  * @param <E> the type of elements held in this collection
  */
+// 放置对象需要实现Delayed接口
 public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
     implements BlockingQueue<E> {
-
+    // 非公平锁
     private final transient ReentrantLock lock = new ReentrantLock();
+    // PriorityQueue来存储元素
     private final PriorityQueue<E> q = new PriorityQueue<E>();
 
     /**
@@ -89,6 +91,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * signalled.  So waiting threads must be prepared to acquire
      * and lose leadership while waiting.
      */
+    // Leader-Follower线程模式中的Leader，它总是等待获取队首
     private Thread leader = null;
 
     /**
@@ -96,6 +99,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * at the head of the queue or a new thread may need to
      * become leader.
      */
+    // 队列为空时等待条件
     private final Condition available = lock.newCondition();
 
     /**
@@ -122,6 +126,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @return {@code true} (as specified by {@link Collection#add})
      * @throws NullPointerException if the specified element is null
      */
+    // 底层调用offer方法
     public boolean add(E e) {
         return offer(e);
     }
@@ -135,9 +140,13 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      */
     public boolean offer(E e) {
         final ReentrantLock lock = this.lock;
+        // 加锁，无需中断，因为底层是个无界队列
         lock.lock();
         try {
             q.offer(e);
+            // 如果加入的元素成为了堆顶
+            // 那么说明之前leader(假设存在)调用awaitNanos方法传入的参数大了，因为现在有更小的元素
+            // 所以此时需要清空leader(不存在就已经是null)并唤醒条件队列中的第一个线程，以更新的参数调用awaitNanos方法
             if (q.peek() == e) {
                 leader = null;
                 available.signal();
@@ -155,6 +164,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @param e the element to add
      * @throws NullPointerException {@inheritDoc}
      */
+    // 底层调用offer方法
     public void put(E e) {
         offer(e);
     }
@@ -169,6 +179,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @return {@code true}
      * @throws NullPointerException {@inheritDoc}
      */
+    // 底层调用offer方法，传入的时间参数是无效的
     public boolean offer(E e, long timeout, TimeUnit unit) {
         return offer(e);
     }
@@ -180,11 +191,13 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @return the head of this queue, or {@code null} if this
      *         queue has no elements with an expired delay
      */
+    // 出队
     public E poll() {
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
             E first = q.peek();
+            // 如果堆首元素为null或者没到期那么返回null，否则返回堆首元素
             if (first == null || first.getDelay(NANOSECONDS) > 0)
                 return null;
             else
@@ -206,22 +219,33 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
         lock.lockInterruptibly();
         try {
             for (;;) {
+                // 获取堆首元素
                 E first = q.peek();
+                // 如果为null，说明队列是空，等待
                 if (first == null)
                     available.await();
                 else {
+                    // 堆首元素不为null
+                    // 获取堆首元素的过期时间
                     long delay = first.getDelay(NANOSECONDS);
+                    // 如果小于0，说明已到期，直接返回堆首元素
                     if (delay <= 0)
                         return q.poll();
+                    // 如果没过期，此时将first置为null
+                    // 因为接下来要阻塞等待，而在阻塞等待期间如果持有引用可能会引起内存泄漏
                     first = null; // don't retain ref while waiting
+                    // leader已经被占领，那么当前线程直接进入条件队列，此时的方法为await没有超时时间
                     if (leader != null)
                         available.await();
                     else {
+                        // 如果leader没有被占领，那么将leader指向当前线程
                         Thread thisThread = Thread.currentThread();
                         leader = thisThread;
                         try {
+                            // 之后当前进入条件队列，此时的方法为awaitNanos是有超时时间的，超时时间就是堆首元素的过期时间
                             available.awaitNanos(delay);
                         } finally {
+                            // 阻塞结束后，当前线程需要放弃leader身份
                             if (leader == thisThread)
                                 leader = null;
                         }
@@ -229,6 +253,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
                 }
             }
         } finally {
+            // 队列中数据不为空，一定要唤醒条件队列中的等待线程
             if (leader == null && q.peek() != null)
                 available.signal();
             lock.unlock();
@@ -245,6 +270,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      *         an expired delay becomes available
      * @throws InterruptedException {@inheritDoc}
      */
+    // 超时的poll，相比take，所有方法都是awaitNanos
     public E poll(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
         final ReentrantLock lock = this.lock;
@@ -252,25 +278,40 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
         try {
             for (;;) {
                 E first = q.peek();
+                // 堆首为空，也就是队列为空
                 if (first == null) {
+                    // 超时直接返回null
                     if (nanos <= 0)
                         return null;
+                    // 未超时，执行awaitNanos，等待nanos，之后继续进入for循环
                     else
                         nanos = available.awaitNanos(nanos);
                 } else {
+                    // 堆首不为空，获取堆首元素的超时时间
                     long delay = first.getDelay(NANOSECONDS);
+                    // 已到期，直接返回
                     if (delay <= 0)
                         return q.poll();
+                    // 堆首元素未到期，但是超时时间已到，直接返回null
                     if (nanos <= 0)
                         return null;
+                    // 如果没过期，此时将first置为null
+                    // 因为接下来要阻塞等待，而在阻塞等待期间如果持有引用可能会引起内存泄漏
                     first = null; // don't retain ref while waiting
+                    // 1.nanos < delay 为true，说明当前队列中的元素肯定是等不到了，
+                    // 但是可能会在超时时间范围内，队列中被插入了更小的元素，还是存在可能的，所以讲当前线程加入条件队列等待，
+                    // 当到达超时后，重新执行for循环
+                    // 2.nanos < delay 为false，leader为true，说明leasder已经有人了，此时将自己加入等待队列，等待leader唤醒
+                    // 或超时，重新执行for循环
                     if (nanos < delay || leader != null)
                         nanos = available.awaitNanos(nanos);
                     else {
+                        // 如果leader没有被占领，那么将leader指向当前线程
                         Thread thisThread = Thread.currentThread();
                         leader = thisThread;
                         try {
                             long timeLeft = available.awaitNanos(delay);
+                            // 计算耗时
                             nanos -= delay - timeLeft;
                         } finally {
                             if (leader == thisThread)
@@ -525,6 +566,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * Snapshot iterator that works off copy of underlying q array.
      */
     private class Itr implements Iterator<E> {
+        // 保存当前数组的快照，弱一致性
         final Object[] array; // Array of all elements
         int cursor;           // index of next element to return
         int lastRet;          // index of last element, or -1 if no such
