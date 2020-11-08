@@ -56,15 +56,17 @@ public class AtomicInteger extends Number implements java.io.Serializable {
 
     // setup to use Unsafe.compareAndSwapInt for updates
     private static final Unsafe unsafe = Unsafe.getUnsafe();
+    // 记录value属性在内存地址里的偏移量
     private static final long valueOffset;
 
     static {
         try {
+            // 获取value属性在内存地址里的偏移量
             valueOffset = unsafe.objectFieldOffset
                 (AtomicInteger.class.getDeclaredField("value"));
         } catch (Exception ex) { throw new Error(ex); }
     }
-
+    // 被volatile修饰，保证可见性和有序性
     private volatile int value;
 
     /**
@@ -96,6 +98,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      *
      * @param newValue the new value
      */
+    // 多线程场景下也是可以的，不需要加锁
     public final void set(int newValue) {
         value = newValue;
     }
@@ -106,6 +109,9 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param newValue the new value
      * @since 1.6
      */
+    // lazySet方法失去了可见性
+    // 相对volatile写操作在代码前后加store-store(避免其他写与它的写重排)和store-load(避免其他读与它的写重排)屏障相比
+    // lazySet只在代码前后加store-store，这样只保证lazySet不会与前面的操作重排，是无法保证与后续操作重排的，所以lazySet失去了可见性
     public final void lazySet(int newValue) {
         unsafe.putOrderedInt(this, valueOffset, newValue);
     }
@@ -116,6 +122,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @param newValue the new value
      * @return the previous value
      */
+    // 底层基于CAS实现，是一个无限循环知道成功为止
     public final int getAndSet(int newValue) {
         return unsafe.getAndSetInt(this, valueOffset, newValue);
     }
@@ -129,6 +136,7 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return {@code true} if successful. False return indicates that
      * the actual value was not equal to the expected value.
      */
+    // 只执行一次CAS操作，操作可能失败
     public final boolean compareAndSet(int expect, int update) {
         return unsafe.compareAndSwapInt(this, valueOffset, expect, update);
     }
@@ -215,6 +223,8 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the previous value
      * @since 1.8
      */
+    // 传入一个函数式接口，该函数式接口只需要一个参数
+    // 返回的是更新前的值
     public final int getAndUpdate(IntUnaryOperator updateFunction) {
         int prev, next;
         do {
@@ -234,6 +244,8 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the updated value
      * @since 1.8
      */
+    // 传入一个函数式接口,该函数式接口只需要一个参数
+    // 返回的是更新后的值
     public final int updateAndGet(IntUnaryOperator updateFunction) {
         int prev, next;
         do {
@@ -257,6 +269,8 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the previous value
      * @since 1.8
      */
+    // 传入一个函数式接口，该函数式接口只需要两个参数
+    // 返回的是更新前的值
     public final int getAndAccumulate(int x,
                                       IntBinaryOperator accumulatorFunction) {
         int prev, next;
@@ -281,6 +295,8 @@ public class AtomicInteger extends Number implements java.io.Serializable {
      * @return the updated value
      * @since 1.8
      */
+    // 传入一个函数式接口，该函数式接口只需要两个参数
+    // 返回的是更新后的值
     public final int accumulateAndGet(int x,
                                       IntBinaryOperator accumulatorFunction) {
         int prev, next;
