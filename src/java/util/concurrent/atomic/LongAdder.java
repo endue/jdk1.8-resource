@@ -81,10 +81,20 @@ public class LongAdder extends Striped64 implements Serializable {
      *
      * @param x the value to add
      */
+    // 增加或低价都会调用该方法
     public void add(long x) {
         Cell[] as; long b, v; int m; Cell a;
+        // 1.cells不为null，优先操作cells
+        // 2.cells为null，操作base
+        // cells不为null或者cas操作base失败进入if里面的代码
         if ((as = cells) != null || !casBase(b = base, b + x)) {
+            // 标记uncontended为true，
             boolean uncontended = true;
+            // 1.cells为null
+            // 2.cells不为null但是没有初始化
+            // 3.cells已初始化但是当前线程对应的cell为null
+            // 4.当前线程对应cell不为null，但是cas修改该值失败
+            // 上述四个添加任何一个成立，都会进入longAccumulate方法
             if (as == null || (m = as.length - 1) < 0 ||
                 (a = as[getProbe() & m]) == null ||
                 !(uncontended = a.cas(v = a.value, v + x)))
@@ -115,6 +125,8 @@ public class LongAdder extends Striped64 implements Serializable {
      *
      * @return the sum
      */
+    // 计算总数，不准
+    // 遍历cells中的cell，累加valeu和base
     public long sum() {
         Cell[] as = cells; Cell a;
         long sum = base;
@@ -134,6 +146,8 @@ public class LongAdder extends Striped64 implements Serializable {
      * method is intrinsically racy, it should only be used when it is
      * known that no threads are concurrently updating.
      */
+    // 重置，存在重置过程中其他线程修改已重置的cell
+    // 遍历cells中的cell，将valeu置为0，,base置为0
     public void reset() {
         Cell[] as = cells; Cell a;
         base = 0L;
@@ -155,6 +169,7 @@ public class LongAdder extends Striped64 implements Serializable {
      *
      * @return the sum
      */
+    // 计算总数后重置，存在重置过程中其他线程修改已重置的cell
     public long sumThenReset() {
         Cell[] as = cells; Cell a;
         long sum = base;
