@@ -77,6 +77,8 @@ import java.util.function.LongBinaryOperator;
  * @since 1.8
  * @author Doug Lea
  */
+// 该方法和LongAdder类似,不同点是多了一个接口函数function
+// 在累加计算的时候不是像LongAdder那样x + v，而是fn.applyAsLong(v, x)
 public class LongAccumulator extends Striped64 implements Serializable {
     private static final long serialVersionUID = 7249069246863182397L;
 
