@@ -145,17 +145,22 @@ abstract class Striped64 extends Number {
     /**
      * Table of cells. When non-null, size is a power of 2.
      */
+    // cell数组，提高并发
     transient volatile Cell[] cells;
 
     /**
      * Base value, used mainly when there is no contention, but also as
      * a fallback during table initialization races. Updated via CAS.
      */
+    // 计数器
     transient volatile long base;
 
     /**
      * Spinlock (locked via CAS) used when resizing and/or creating Cells.
      */
+    // 创建、修改cells的标识符，当线程创建、修改cells时
+    // 只有CAS修改cellsBusy标识符成功才能获得成功
+    // 0表示没有人修改，1表示有
     transient volatile int cellsBusy;
 
     /**
@@ -213,7 +218,9 @@ abstract class Striped64 extends Number {
      */
     final void longAccumulate(long x, LongBinaryOperator fn,
                               boolean wasUncontended) {
+        // 局部遍历记录当前线程的探针值
         int h;
+        // 如果当前探针值位吃时候则为当前线程初始化一个ThreadLocalRandom
         if ((h = getProbe()) == 0) {
             ThreadLocalRandom.current(); // force initialization
             h = getProbe();
@@ -221,14 +228,31 @@ abstract class Striped64 extends Number {
         }
         boolean collide = false;                // True if last slot nonempty
         for (;;) {
+            // as 记录cells
+            // a 记录当前线程所属的cell
+            // n 记录cells的长度
+            // v 记录当前线程所属的cell的value
             Cell[] as; Cell a; int n; long v;
+            // cells已初始化
             if ((as = cells) != null && (n = as.length) > 0) {
+                // 1.计算当前线程对应的cell的下标并获取当前线程所属的cell
+                // 2.判断cell是否为null
                 if ((a = as[(n - 1) & h]) == null) {
+                    /*如果当前线程的cell为null，则需要初始化*/
+
+                    // 判断当前是否有其他线程修改cells
                     if (cellsBusy == 0) {       // Try to attach new Cell
+                        // 创建当前线程的cell并附上当前线程的值
                         Cell r = new Cell(x);   // Optimistically create
+                        // 1.再次判断cellsBusy是否为0，因为并发操作有可能其他线程修改cellsBusy为1了
+                        // 2.CAS修改cellsBusy为1
                         if (cellsBusy == 0 && casCellsBusy()) {
                             boolean created = false;
                             try {               // Recheck under lock
+                                // rs 记录cells，此时的cells有可能发生了变化
+                                // m 记录cells，此时的cells长度有可能发生了变化
+                                // j 重新计算当前线程所属cell的下标
+                                // 最后将为当前线程创建的cell赋值到cells对应的下标位置
                                 Cell[] rs; int m, j;
                                 if ((rs = cells) != null &&
                                     (m = rs.length) > 0 &&
@@ -237,30 +261,46 @@ abstract class Striped64 extends Number {
                                     created = true;
                                 }
                             } finally {
+                                // 最后要释放cellsBusy
                                 cellsBusy = 0;
                             }
+                            // 如果为当前线程创建了cell，则直接跳出循环，结束操作
+                            // 否则继续循环
                             if (created)
                                 break;
                             continue;           // Slot is now non-empty
                         }
                     }
+                    // 当前线程对应的cell为null，但是尝试创建时失败，说明其他线程在操作，这是发生了冲突，需要重新获取探针值
                     collide = false;
                 }
+                /*如果当前线程的cell不为null*/
+
+                // wasUncontended是传进来的参数
+                // 也就是在该方法执行之前CAS修改失败了，那么应该是线程的探针值出现了重复，重新获取一个探针值后重新循环
                 else if (!wasUncontended)       // CAS already known to fail
                     wasUncontended = true;      // Continue after rehash
+                // CAS修改当前探针的cell，如果成功直接break
                 else if (a.cas(v = a.value, ((fn == null) ? v + x :
                                              fn.applyAsLong(v, x))))
                     break;
+                // cells的长度大于CPU数量 或 cells发生了更新
+                // 重新获取探针，重新循环
                 else if (n >= NCPU || cells != as)
                     collide = false;            // At max size or stale
+                // collide为false，重新获取一个探针值
                 else if (!collide)
                     collide = true;
+                // 前面都失败了，扩容吧！！！
                 else if (cellsBusy == 0 && casCellsBusy()) {
                     try {
                         if (cells == as) {      // Expand table unless stale
+                            // 二倍扩容
                             Cell[] rs = new Cell[n << 1];
+                            // 将之前的旧的cell移到新的里面
                             for (int i = 0; i < n; ++i)
                                 rs[i] = as[i];
+                            // 更新
                             cells = rs;
                         }
                     } finally {
@@ -269,11 +309,16 @@ abstract class Striped64 extends Number {
                     collide = false;
                     continue;                   // Retry with expanded table
                 }
+                // 再次获取探针
                 h = advanceProbe(h);
             }
+            /* 执行到这里，说明counterCells数组为null */
+
+            // CAS修改cellsBusy
             else if (cellsBusy == 0 && cells == as && casCellsBusy()) {
                 boolean init = false;
                 try {                           // Initialize table
+                    // 初始化
                     if (cells == as) {
                         Cell[] rs = new Cell[2];
                         rs[h & 1] = new Cell(x);
@@ -286,6 +331,9 @@ abstract class Striped64 extends Number {
                 if (init)
                     break;
             }
+            /* 执行到这里，说明counterCells数组为null 并且没有成功修改初始化的标识符 */
+
+            // 执行修改base的值
             else if (casBase(v = base, ((fn == null) ? v + x :
                                         fn.applyAsLong(v, x))))
                 break;                          // Fall back on using base
