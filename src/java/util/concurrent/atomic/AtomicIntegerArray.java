@@ -45,19 +45,33 @@ import sun.misc.Unsafe;
  * variables.
  * @since 1.5
  * @author Doug Lea
+ * 基于反射获取Unsafe类
+ *     public static Unsafe getUnsafeInstance() throws Exception{
+ *         Field unsafeStaticField = Unsafe.class.getDeclaredField("theUnsafe");
+ *         unsafeStaticField.setAccessible(true);
+ *         return (Unsafe) unsafeStaticField.get(Unsafe.class);
+ *     }
  */
 public class AtomicIntegerArray implements java.io.Serializable {
     private static final long serialVersionUID = 2862133569453604235L;
 
     private static final Unsafe unsafe = Unsafe.getUnsafe();
+    // 返回当前数组第一个元素地址相对于数组起始地址的偏移值
     private static final int base = unsafe.arrayBaseOffset(int[].class);
     private static final int shift;
+    // 被final修改，保证不可变，但内部元素可变
     private final int[] array;
 
     static {
+        // 返回当前数组一个元素占用的字节数
+        // int类型为4字节，所以这里scale为4
         int scale = unsafe.arrayIndexScale(int[].class);
         if ((scale & (scale - 1)) != 0)
             throw new Error("data type scale not a power of two");
+        // shift = 2
+        // 这里scale必须保证为2的n次幂，Integer.numberOfLeadingZeros(scale)返回scale前面0的个数num，之后31在减去num
+        // 就是scale值对应的二进制1所在的位置，所以也就是 scale = 2的shift次幂
+        // (int类型占32位，不用32减是因为4的二进制为100，也就是2的2次幂，这里提前抛弃一位)
         shift = 31 - Integer.numberOfLeadingZeros(scale);
     }
 
@@ -67,8 +81,9 @@ public class AtomicIntegerArray implements java.io.Serializable {
 
         return byteOffset(i);
     }
-
+    // 传入元素索引位置，返回这个元素在数组中的起始地址
     private static long byteOffset(int i) {
+        // 由static代码块可知 i << shift = i * 2的shift次幂 = i * scale + base = 索引位置 * 类型大小 + 偏移量
         return ((long) i << shift) + base;
     }
 
