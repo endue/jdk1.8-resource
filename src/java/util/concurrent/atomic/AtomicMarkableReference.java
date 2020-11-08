@@ -47,8 +47,10 @@ package java.util.concurrent.atomic;
  * @author Doug Lea
  * @param <V> The type of object referred to by this reference
  */
+// 记录当前引用是否被标记
 public class AtomicMarkableReference<V> {
 
+    // 内部类，用来保存引用和是否标记
     private static class Pair<T> {
         final T reference;
         final boolean mark;
@@ -60,7 +62,7 @@ public class AtomicMarkableReference<V> {
             return new Pair<T>(reference, mark);
         }
     }
-
+    // 被volatile修饰保证了可见性和有序性
     private volatile Pair<V> pair;
 
     /**
@@ -70,6 +72,7 @@ public class AtomicMarkableReference<V> {
      * @param initialRef the initial reference
      * @param initialMark the initial mark
      */
+    // 构造方法
     public AtomicMarkableReference(V initialRef, boolean initialMark) {
         pair = Pair.of(initialRef, initialMark);
     }
@@ -142,6 +145,7 @@ public class AtomicMarkableReference<V> {
      * @param newMark the new value for the mark
      * @return {@code true} if successful
      */
+    // CAS更新pair
     public boolean compareAndSet(V       expectedReference,
                                  V       newReference,
                                  boolean expectedMark,
