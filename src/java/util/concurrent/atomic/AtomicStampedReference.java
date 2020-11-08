@@ -47,20 +47,25 @@ package java.util.concurrent.atomic;
  * @author Doug Lea
  * @param <V> The type of object referred to by this reference
  */
+// 解决CAS操作的ABA问题
 public class AtomicStampedReference<V> {
 
+    // 内部类，且内部属性都是被final修饰的
     private static class Pair<T> {
+        // 记录引用对象
         final T reference;
+        // 版本号
         final int stamp;
         private Pair(T reference, int stamp) {
             this.reference = reference;
             this.stamp = stamp;
         }
+        // 静态构造方法
         static <T> Pair<T> of(T reference, int stamp) {
             return new Pair<T>(reference, stamp);
         }
     }
-
+    // 被volatile修饰，保证可见性有序性
     private volatile Pair<V> pair;
 
     /**
@@ -79,6 +84,7 @@ public class AtomicStampedReference<V> {
      *
      * @return the current value of the reference
      */
+    // 获取引用
     public V getReference() {
         return pair.reference;
     }
@@ -88,6 +94,7 @@ public class AtomicStampedReference<V> {
      *
      * @return the current value of the stamp
      */
+    // 获取版本号
     public int getStamp() {
         return pair.stamp;
     }
@@ -100,6 +107,7 @@ public class AtomicStampedReference<V> {
      * {@code stampholder[0]} will hold the value of the stamp.
      * @return the current value of the reference
      */
+    // 该操作不具备原子性
     public V get(int[] stampHolder) {
         Pair<V> pair = this.pair;
         stampHolder[0] = pair.stamp;
@@ -142,6 +150,10 @@ public class AtomicStampedReference<V> {
      * @param newStamp the new value for the stamp
      * @return {@code true} if successful
      */
+    // 1 判断旧引用，和当前的是否一样
+    // 2 判断旧版本，和当前的是否一样
+    // 3 判断新引用与新版本号，是否和当前的相同，一般不会满足此此判断条件
+    // 4 cas操作更新pair
     public boolean compareAndSet(V   expectedReference,
                                  V   newReference,
                                  int expectedStamp,
@@ -161,6 +173,7 @@ public class AtomicStampedReference<V> {
      * @param newReference the new value for the reference
      * @param newStamp the new value for the stamp
      */
+    // 当引用或版本号不一致时，直接更新
     public void set(V newReference, int newStamp) {
         Pair<V> current = pair;
         if (newReference != current.reference || newStamp != current.stamp)
@@ -180,6 +193,7 @@ public class AtomicStampedReference<V> {
      * @param newStamp the new value for the stamp
      * @return {@code true} if successful
      */
+    // 更新版本号
     public boolean attemptStamp(V expectedReference, int newStamp) {
         Pair<V> current = pair;
         return
@@ -191,6 +205,7 @@ public class AtomicStampedReference<V> {
     // Unsafe mechanics
 
     private static final sun.misc.Unsafe UNSAFE = sun.misc.Unsafe.getUnsafe();
+    // 获得属性pair的偏移量
     private static final long pairOffset =
         objectFieldOffset(UNSAFE, "pair", AtomicStampedReference.class);
 
