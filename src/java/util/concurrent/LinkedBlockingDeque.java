@@ -74,6 +74,9 @@ import java.util.function.Consumer;
  * @author  Doug Lea
  * @param <E> the type of elements held in this collection
  */
+//LinkedBlockingDueue是一种有界阻塞队列，
+// 它的底层是双向链表，所以它是双向的。也就是说，在队首队尾都可以进行插入和删除操作。
+// 这样，LinkedBlockingDueue就支持FIFO（队列）、FILO（栈）两种操作方式
 public class LinkedBlockingDeque<E>
     extends AbstractQueue<E>
     implements BlockingDeque<E>, java.io.Serializable {
@@ -107,6 +110,7 @@ public class LinkedBlockingDeque<E>
     private static final long serialVersionUID = -387911632671998426L;
 
     /** Doubly-linked list node class */
+    // 链表节点，双向链表
     static final class Node<E> {
         /**
          * The item, or null if this node has been removed.
@@ -139,6 +143,7 @@ public class LinkedBlockingDeque<E>
      * Invariant: (first == null && last == null) ||
      *            (first.prev == null && first.item != null)
      */
+    // 队头
     transient Node<E> first;
 
     /**
@@ -146,21 +151,26 @@ public class LinkedBlockingDeque<E>
      * Invariant: (first == null && last == null) ||
      *            (last.next == null && last.item != null)
      */
+    // 队尾
     transient Node<E> last;
 
     /** Number of items in the deque */
+    // 当前节点个数
     private transient int count;
 
     /** Maximum number of items in the deque */
+    // 链表容量，被final修饰，初始化后无法修改
     private final int capacity;
 
     /** Main lock guarding all access */
     final ReentrantLock lock = new ReentrantLock();
 
     /** Condition for waiting takes */
+    // 等待获取元素
     private final Condition notEmpty = lock.newCondition();
 
     /** Condition for waiting puts */
+    // 等待放入元素
     private final Condition notFull = lock.newCondition();
 
     /**
@@ -197,6 +207,7 @@ public class LinkedBlockingDeque<E>
         final ReentrantLock lock = this.lock;
         lock.lock(); // Never contended, but necessary for visibility
         try {
+            // 这里可以看出链表中不允许存在空值
             for (E e : c) {
                 if (e == null)
                     throw new NullPointerException();
@@ -214,18 +225,27 @@ public class LinkedBlockingDeque<E>
     /**
      * Links node as first element, or returns false if full.
      */
+    // 将node节点添加到队列头部
     private boolean linkFirst(Node<E> node) {
         // assert lock.isHeldByCurrentThread();
+        // 如果当前容量已达最大容量则返回false
         if (count >= capacity)
             return false;
+        // 获取头节点
         Node<E> f = first;
+        // 添加节点的next执行头结点
         node.next = f;
+        // 更新头结点为添加节点
         first = node;
+        // 链表为空，则将last指向刚刚插入的节点
         if (last == null)
             last = node;
+        // 链表不为空，更新旧队列中头结点的prev执行当前插入节点
         else
             f.prev = node;
+        // 记录元素个数
         ++count;
+        // 唤醒等待元素的线程
         notEmpty.signal();
         return true;
     }
@@ -233,18 +253,27 @@ public class LinkedBlockingDeque<E>
     /**
      * Links node as last element, or returns false if full.
      */
+    // 将node节点添加到队列尾部
     private boolean linkLast(Node<E> node) {
         // assert lock.isHeldByCurrentThread();
+        // 如果当前容量已达最大容量则返回false
         if (count >= capacity)
             return false;
+        // 获取尾节点
         Node<E> l = last;
+        // 将插入节点的prev指向旧链表的尾结点
         node.prev = l;
+        // 更新尾节点指向新插入的节点
         last = node;
+        // 链表为空，则将first指向刚刚插入的节点
         if (first == null)
             first = node;
+        // 链表不为空，更新旧队列中尾结点的next执行当前插入节点
         else
             l.next = node;
+        // 记录元素个数
         ++count;
+        // 唤醒等待元素的线程
         notEmpty.signal();
         return true;
     }
@@ -252,21 +281,30 @@ public class LinkedBlockingDeque<E>
     /**
      * Removes and returns first element, or null if empty.
      */
+    // 删除链表头节点
     private E unlinkFirst() {
         // assert lock.isHeldByCurrentThread();
         Node<E> f = first;
+        // 队列为空，直接返回null
         if (f == null)
             return null;
+        // 获取头结点的下一个节点，为新头结点做准备
         Node<E> n = f.next;
+        // 将旧链表中的头结点与链表断开连接
         E item = f.item;
         f.item = null;
         f.next = f; // help GC
+        // 更新头节点
         first = n;
+        // 如果旧链表头结点next为null
+        // 说明链表已空，则更新last节点为null
         if (n == null)
             last = null;
+        // 链表不空，则更新头结点的prev为null
         else
             n.prev = null;
         --count;
+        // 唤醒等待放入元素的线程
         notFull.signal();
         return item;
     }
@@ -274,21 +312,30 @@ public class LinkedBlockingDeque<E>
     /**
      * Removes and returns last element, or null if empty.
      */
+    // 删除链表尾节点
     private E unlinkLast() {
         // assert lock.isHeldByCurrentThread();
         Node<E> l = last;
+        // 队列为空，直接返回null
         if (l == null)
             return null;
+        // 获取尾结点的上一个节点，为新尾结点做准备
         Node<E> p = l.prev;
+        // 将旧链表中的尾结点与链表断开连接
         E item = l.item;
         l.item = null;
         l.prev = l; // help GC
+        // 更新尾节点
         last = p;
+        // 如果旧链表尾结点next为null
+        // 说明链表已空，则更新first节点为null
         if (p == null)
             first = null;
+        // 链表不空，则更新尾结点的next为null
         else
             p.next = null;
         --count;
+        // 唤醒等待放入元素的线程
         notFull.signal();
         return item;
     }
@@ -296,17 +343,26 @@ public class LinkedBlockingDeque<E>
     /**
      * Unlinks x.
      */
+    // 从链表中移除x节点
     void unlink(Node<E> x) {
         // assert lock.isHeldByCurrentThread();
+        // 分别获取x节点的前一个节点和后一个节点
         Node<E> p = x.prev;
         Node<E> n = x.next;
+        // 前一个节点为null，说明x节点是头结点
+        // 按照删除头结点处理
         if (p == null) {
             unlinkFirst();
+        // 前一个节点不为null，后一个节点为null，说明x节点是尾结点
+        // 按照删除尾结点处理
         } else if (n == null) {
             unlinkLast();
+        // 既不是头结点也不是尾节点
         } else {
+            // 更新x节点前后节点的指针
             p.next = n;
             n.prev = p;
+            // 注意这里并没有去操作x节点删除节点的前后指针，主要是为了方便迭代器继续使用
             x.item = null;
             // Don't mess with x's links.  They may still be in use by
             // an iterator.
@@ -321,6 +377,7 @@ public class LinkedBlockingDeque<E>
      * @throws IllegalStateException if this deque is full
      * @throws NullPointerException {@inheritDoc}
      */
+    // 添加元素到头结点
     public void addFirst(E e) {
         if (!offerFirst(e))
             throw new IllegalStateException("Deque full");
@@ -330,6 +387,7 @@ public class LinkedBlockingDeque<E>
      * @throws IllegalStateException if this deque is full
      * @throws NullPointerException  {@inheritDoc}
      */
+    // 添加元素到尾节点
     public void addLast(E e) {
         if (!offerLast(e))
             throw new IllegalStateException("Deque full");
@@ -338,9 +396,12 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NullPointerException {@inheritDoc}
      */
+    // 添加元素到头结点
     public boolean offerFirst(E e) {
         if (e == null) throw new NullPointerException();
+        // 封装元素为一个节点
         Node<E> node = new Node<E>(e);
+        // 获取锁
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
@@ -353,6 +414,7 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NullPointerException {@inheritDoc}
      */
+    // 添加元素到尾节点
     public boolean offerLast(E e) {
         if (e == null) throw new NullPointerException();
         Node<E> node = new Node<E>(e);
@@ -369,6 +431,7 @@ public class LinkedBlockingDeque<E>
      * @throws NullPointerException {@inheritDoc}
      * @throws InterruptedException {@inheritDoc}
      */
+    // 添加元素到头节点，如果添加失败则将当前线程放入等待队列，等待后续唤醒
     public void putFirst(E e) throws InterruptedException {
         if (e == null) throw new NullPointerException();
         Node<E> node = new Node<E>(e);
@@ -386,6 +449,7 @@ public class LinkedBlockingDeque<E>
      * @throws NullPointerException {@inheritDoc}
      * @throws InterruptedException {@inheritDoc}
      */
+    // 添加元素到尾节点，如果添加失败则将当前线程放入等待队列，等待后续唤醒
     public void putLast(E e) throws InterruptedException {
         if (e == null) throw new NullPointerException();
         Node<E> node = new Node<E>(e);
@@ -403,6 +467,7 @@ public class LinkedBlockingDeque<E>
      * @throws NullPointerException {@inheritDoc}
      * @throws InterruptedException {@inheritDoc}
      */
+    // 添加元素到头结点，在规定等待时间内超时则添加失败，而且可以被中断
     public boolean offerFirst(E e, long timeout, TimeUnit unit)
         throws InterruptedException {
         if (e == null) throw new NullPointerException();
@@ -426,6 +491,7 @@ public class LinkedBlockingDeque<E>
      * @throws NullPointerException {@inheritDoc}
      * @throws InterruptedException {@inheritDoc}
      */
+    // 添加元素到尾结点，在规定等待时间内超时则添加失败，而且可以被中断
     public boolean offerLast(E e, long timeout, TimeUnit unit)
         throws InterruptedException {
         if (e == null) throw new NullPointerException();
@@ -448,6 +514,7 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NoSuchElementException {@inheritDoc}
      */
+    // 移除头结点的元素
     public E removeFirst() {
         E x = pollFirst();
         if (x == null) throw new NoSuchElementException();
@@ -457,12 +524,14 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NoSuchElementException {@inheritDoc}
      */
+    // 移除尾节点的元素
     public E removeLast() {
         E x = pollLast();
         if (x == null) throw new NoSuchElementException();
         return x;
     }
 
+    // 移除头结点的元素
     public E pollFirst() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -473,6 +542,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 移除尾节点的元素
     public E pollLast() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -483,6 +553,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 移除头结点的元素,如果队列为空则将当前线程放入等待，等待后续唤醒
     public E takeFirst() throws InterruptedException {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -496,6 +567,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 移除尾结点的元素,如果队列为空则将当前线程放入等待，等待后续唤醒
     public E takeLast() throws InterruptedException {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -509,6 +581,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 移除头结点的元素,如果队列为空则将当前线程放入等待，等待后续唤醒，超时则自动退出
     public E pollFirst(long timeout, TimeUnit unit)
         throws InterruptedException {
         long nanos = unit.toNanos(timeout);
@@ -527,6 +600,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 移除尾结点的元素,如果队列为空则将当前线程放入等待，等待后续唤醒，超时则自动退出
     public E pollLast(long timeout, TimeUnit unit)
         throws InterruptedException {
         long nanos = unit.toNanos(timeout);
@@ -548,6 +622,7 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NoSuchElementException {@inheritDoc}
      */
+    // 获取头节点元素但并不从链表中删除
     public E getFirst() {
         E x = peekFirst();
         if (x == null) throw new NoSuchElementException();
@@ -557,12 +632,14 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NoSuchElementException {@inheritDoc}
      */
+    // 获取尾节点元素但并不从链表中删除
     public E getLast() {
         E x = peekLast();
         if (x == null) throw new NoSuchElementException();
         return x;
     }
 
+    // 获取头指针指向的元素
     public E peekFirst() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -573,6 +650,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 获取尾指针指向的元素
     public E peekLast() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -583,11 +661,13 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 删除第一个等于o元素的节点
     public boolean removeFirstOccurrence(Object o) {
         if (o == null) return false;
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 从头到尾遍历
             for (Node<E> p = first; p != null; p = p.next) {
                 if (o.equals(p.item)) {
                     unlink(p);
@@ -600,6 +680,7 @@ public class LinkedBlockingDeque<E>
         }
     }
 
+    // 删除最后一个等于o元素的节点
     public boolean removeLastOccurrence(Object o) {
         if (o == null) return false;
         final ReentrantLock lock = this.lock;
@@ -629,6 +710,7 @@ public class LinkedBlockingDeque<E>
      * @throws IllegalStateException if this deque is full
      * @throws NullPointerException if the specified element is null
      */
+    // 添加元素到尾节点
     public boolean add(E e) {
         addLast(e);
         return true;
@@ -637,6 +719,7 @@ public class LinkedBlockingDeque<E>
     /**
      * @throws NullPointerException if the specified element is null
      */
+    // 添加元素到尾节点
     public boolean offer(E e) {
         return offerLast(e);
     }
@@ -645,6 +728,7 @@ public class LinkedBlockingDeque<E>
      * @throws NullPointerException {@inheritDoc}
      * @throws InterruptedException {@inheritDoc}
      */
+    // 添加元素到尾节点，如果添加失败则将当前线程放入等待队列，等待后续唤醒
     public void put(E e) throws InterruptedException {
         putLast(e);
     }
@@ -653,6 +737,7 @@ public class LinkedBlockingDeque<E>
      * @throws NullPointerException {@inheritDoc}
      * @throws InterruptedException {@inheritDoc}
      */
+    // 添加元素到尾结点，在规定等待时间内超时则添加失败，而且可以被中断
     public boolean offer(E e, long timeout, TimeUnit unit)
         throws InterruptedException {
         return offerLast(e, timeout, unit);
@@ -668,18 +753,22 @@ public class LinkedBlockingDeque<E>
      * @return the head of the queue represented by this deque
      * @throws NoSuchElementException if this deque is empty
      */
+    // 移除头结点的元素
     public E remove() {
         return removeFirst();
     }
 
+    // 移除头结点的元素
     public E poll() {
         return pollFirst();
     }
 
+    // 移除头结点的元素,如果队列为空则将当前线程放入等待，等待后续唤醒
     public E take() throws InterruptedException {
         return takeFirst();
     }
 
+    // 移除头结点的元素,如果队列为空则将当前线程放入等待，等待后续唤醒，超时则自动退出
     public E poll(long timeout, TimeUnit unit) throws InterruptedException {
         return pollFirst(timeout, unit);
     }
@@ -694,10 +783,12 @@ public class LinkedBlockingDeque<E>
      * @return the head of the queue represented by this deque
      * @throws NoSuchElementException if this deque is empty
      */
+    // 获取头节点元素但并不从链表中删除
     public E element() {
         return getFirst();
     }
 
+    // 获取头节点元素但并不从链表中删除
     public E peek() {
         return peekFirst();
     }
@@ -713,6 +804,7 @@ public class LinkedBlockingDeque<E>
      * because it may be the case that another thread is about to
      * insert or remove an element.
      */
+    // 获取剩余容量
     public int remainingCapacity() {
         final ReentrantLock lock = this.lock;
         lock.lock();
