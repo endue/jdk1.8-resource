@@ -184,7 +184,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Spinlock for allocation, acquired via CAS.
      */
-    // 自旋锁，底层依赖CAS操作，数组扩容时使用
+    // 自旋锁，底层依赖CAS操作，数组扩容时使用 0：没扩容 1：正在扩容
     private transient volatile int allocationSpinLock;
 
     /**
@@ -309,32 +309,48 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * @param array the heap array
      * @param oldCap the length of the array
      */
+    // 扩容
     private void tryGrow(Object[] array, int oldCap) {
+        // 这里释放了锁，要不扩容的时候其他获取元素的线程什么也操作不了
         lock.unlock(); // must release and then re-acquire main lock
         Object[] newArray = null;
+        // 扩容标识符为0 && CAS操作修改扩容标识符成功
+        // 这里CAS只尝试执行一次，如果失败进入下面的if操作
         if (allocationSpinLock == 0 &&
             UNSAFE.compareAndSwapInt(this, allocationSpinLockOffset,
                                      0, 1)) {
             try {
+                // 1.oldCap < 64 则 newCap = 2 * (oldCap + 1)
+                // 2.oldCap >= 64 则 newCap = 1.5 * oldCap
                 int newCap = oldCap + ((oldCap < 64) ?
                                        (oldCap + 2) : // grow faster if small
                                        (oldCap >> 1));
+                // 如果newCap超过MAX_ARRAY_SIZE则判断oldCap + 1是否超过最大容量，
+                // 如果没有则newCap = MAX_ARRAY_SIZE
                 if (newCap - MAX_ARRAY_SIZE > 0) {    // possible overflow
                     int minCap = oldCap + 1;
                     if (minCap < 0 || minCap > MAX_ARRAY_SIZE)
                         throw new OutOfMemoryError();
                     newCap = MAX_ARRAY_SIZE;
                 }
+                // 创建新数组
                 if (newCap > oldCap && queue == array)
                     newArray = new Object[newCap];
             } finally {
                 allocationSpinLock = 0;
             }
         }
+        // 走到这里有两种可能：
+        // 1. CAS修改allocationSpinLockOffset成功
+        // 2. CAS修改allocationSpinLockOffset失败，那么newArray一定为null，此时让出CPU执行权
         if (newArray == null) // back off if another thread is allocating
             Thread.yield();
+
+        // 再次尝试获取锁
         lock.lock();
+        // 走到这里判断是否扩容成功
         if (newArray != null && queue == array) {
+            // 拷贝旧数组
             queue = newArray;
             System.arraycopy(array, 0, newArray, 0, oldCap);
         }
@@ -343,16 +359,21 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Mechanics for poll().  Call only while holding lock.
      */
+    // 出队
     private E dequeue() {
         int n = size - 1;
         if (n < 0)
             return null;
         else {
             Object[] array = queue;
+            // 获取堆顶元素，也就是最小元素
             E result = (E) array[0];
+            // 获取堆的最后一个元素
             E x = (E) array[n];
+            // 堆的最后一个元素所在位置置为null
             array[n] = null;
             Comparator<? super E> cmp = comparator;
+            // 将之前记录的堆的最后一个元素放到堆顶，然后执行下沉操作
             if (cmp == null)
                 siftDownComparable(0, x, array, n);
             else
@@ -373,23 +394,31 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * These methods are static, with heap state as arguments, to
      * simplify use in light of possible comparator exceptions.
      *
-     * @param k the position to fill
-     * @param x the item to insert
-     * @param array the heap array
+     * @param k the position to fill 插入元素的位置
+     * @param x the item to insert 插入的元素
+     * @param array the heap array 数组
      */
+    // 上浮操作
     private static <T> void siftUpComparable(int k, T x, Object[] array) {
         Comparable<? super T> key = (Comparable<? super T>) x;
         while (k > 0) {
+            // 获取插入位置的父节点索引
             int parent = (k - 1) >>> 1;
+            // 获取插入位置的父节点的值
             Object e = array[parent];
+            // 如果当前节点 >= 父节点的值
+            // 那么只需要将当前元素插入k位置即可，不需要循环
             if (key.compareTo((T) e) >= 0)
                 break;
+            // 如果当前节点 < 父节点的值
+            // 父节点下沉
             array[k] = e;
+            // 更新插入位置为之前父节点所在的位置
             k = parent;
         }
         array[k] = key;
     }
-
+    // 上浮操作
     private static <T> void siftUpUsingComparator(int k, T x, Object[] array,
                                        Comparator<? super T> cmp) {
         while (k > 0) {
@@ -429,8 +458,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
                 Object c = array[child];
                 // 获取插入位置的右孩子索引
                 int right = child + 1;
-                // 如果右孩子存在 && 右孩子最新
-                // 获取右孩子的值
+                // 如果右孩子存在 && 右孩子最小 -> 则获取右孩子的值
                 if (right < n &&
                     ((Comparable<? super T>) c).compareTo((T) array[right]) > 0)
                     c = array[child = right];
@@ -439,15 +467,15 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
                 if (key.compareTo((T) c) <= 0)
                     break;
                 // 如果插入元素 > 最小的孩子节点
-                // 最小的孩子节点上移
+                // 最小的孩子节点上浮
                 array[k] = c;
-                // 更新插入位置
+                // 更新插入位置为之前最小孩子节点所在的位置
                 k = child;
             }
             array[k] = key;
         }
     }
-
+    // 下沉操作
     private static <T> void siftDownUsingComparator(int k, T x, Object[] array,
                                                     int n,
                                                     Comparator<? super T> cmp) {
@@ -499,6 +527,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      *         priority queue's ordering
      * @throws NullPointerException if the specified element is null
      */
+    // 放入元素
     public boolean add(E e) {
         return offer(e);
     }
@@ -514,22 +543,29 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      *         priority queue's ordering
      * @throws NullPointerException if the specified element is null
      */
+    // 放入元素
     public boolean offer(E e) {
         if (e == null)
             throw new NullPointerException();
         final ReentrantLock lock = this.lock;
         lock.lock();
+        // 记录原数组保存的元素个数
+        // 记录原数组的容量
         int n, cap;
+        // 记录原数组
         Object[] array;
+        // 如果当前保存的元素个数超过数组容量则扩容
         while ((n = size) >= (cap = (array = queue).length))
             tryGrow(array, cap);
         try {
             Comparator<? super E> cmp = comparator;
+            // 插入元素后需要判断是否需要上浮
             if (cmp == null)
                 siftUpComparable(n, e, array);
             else
                 siftUpUsingComparator(n, e, array, cmp);
             size = n + 1;
+            // 唤醒等待获取元素的线程
             notEmpty.signal();
         } finally {
             lock.unlock();
@@ -547,6 +583,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      *         priority queue's ordering
      * @throws NullPointerException if the specified element is null
      */
+    // 放入元素
     public void put(E e) {
         offer(e); // never need to block
     }
@@ -566,10 +603,12 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      *         priority queue's ordering
      * @throws NullPointerException if the specified element is null
      */
+    // 放入元素
     public boolean offer(E e, long timeout, TimeUnit unit) {
         return offer(e); // never need to block
     }
 
+    // 取出元素
     public E poll() {
         final ReentrantLock lock = this.lock;
         lock.lock();
@@ -663,19 +702,27 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Removes the ith element from queue.
      */
+    // 删除索引为i的元素
+    // 参考：dequeue()方法
     private void removeAt(int i) {
         Object[] array = queue;
         int n = size - 1;
+        // 删除的元素正好是堆中最后一个元素
         if (n == i) // removed last element
             array[i] = null;
         else {
+            // 获取堆中最后一个元素
             E moved = (E) array[n];
             array[n] = null;
             Comparator<? super E> cmp = comparator;
+            // 将之前记录的堆中最后一个元素放入i的位置，然后执行下沉操作
             if (cmp == null)
                 siftDownComparable(i, moved, array, n);
             else
                 siftDownUsingComparator(i, moved, array, n, cmp);
+            // 如果下面if条件成立，那么说明moved元素并没有下沉，而是直接放在了i的位置：
+            // 比如：i位置之前就是叶子节点 或 moved元素比删除元素的叶子节点都小
+            // 此时需要执行一下上浮操作
             if (array[i] == moved) {
                 if (cmp == null)
                     siftUpComparable(i, moved, array);
@@ -910,6 +957,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * @return an iterator over the elements in this queue
      */
     public Iterator<E> iterator() {
+        // 创建迭代器的时候，会保存当前元素数组的一个快照
         return new Itr(toArray());
     }
 
