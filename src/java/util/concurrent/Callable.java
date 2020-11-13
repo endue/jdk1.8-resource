@@ -62,5 +62,6 @@ public interface Callable<V> {
      * @return computed result
      * @throws Exception if unable to compute a result
      */
+    // 带返回值并且可以抛出异常，但是Thread线程无法接收Callable
     V call() throws Exception;
 }
