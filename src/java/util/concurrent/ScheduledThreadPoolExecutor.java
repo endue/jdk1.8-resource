@@ -152,16 +152,19 @@ public class ScheduledThreadPoolExecutor
     /**
      * False if should cancel/suppress periodic tasks on shutdown.
      */
+    // 线程池状态变成Shutdown后，是否还需要执行队列中的周期任务
     private volatile boolean continueExistingPeriodicTasksAfterShutdown;
 
     /**
      * False if should cancel non-periodic tasks on shutdown.
      */
+    // 线程池状态变成Shutdown后，是否还需要执行队列中的延迟任务。默认为true
     private volatile boolean executeExistingDelayedTasksAfterShutdown = true;
 
     /**
      * True if ScheduledFutureTask.cancel should remove from queue
      */
+    // 取消Future后，是否将其从队列中移除
     private volatile boolean removeOnCancel = false;
 
     /**
@@ -192,9 +195,14 @@ public class ScheduledThreadPoolExecutor
          * indicates fixed-delay execution.  A value of 0 indicates a
          * non-repeating task.
          */
+        // 是否是周期性的任务
+        // 1. 正数是fixed-rate周期任务
+        // 2. 负数是fixed-delay周期任务
+        // 3. 0是延时任务
         private final long period;
 
         /** The actual task to be re-enqueued by reExecutePeriodic */
+        // 下一周期要执行的任务，默认指向自己
         RunnableScheduledFuture<V> outerTask = this;
 
         /**
@@ -267,11 +275,12 @@ public class ScheduledThreadPoolExecutor
         /**
          * Sets the next time to run for a periodic task.
          */
+        // 获取任务下一次的执行时间
         private void setNextRunTime() {
             long p = period;
-            if (p > 0)
+            if (p > 0)// 固定周期速率执行的，只需按照上一次开始的时间 + 周期值执行即可
                 time += p;
-            else
+            else // 固定延迟速率执行的，按照当前时间 + 周期值执行即可
                 time = triggerTime(-p);
         }
 
@@ -285,13 +294,18 @@ public class ScheduledThreadPoolExecutor
         /**
          * Overrides FutureTask version so as to reset/requeue if periodic.
          */
+        // 重新父类方法，在执行的时候调用该方法
         public void run() {
+            // 判断是否为周期执行的任务
             boolean periodic = isPeriodic();
             if (!canRunInCurrentRunState(periodic))
                 cancel(false);
+            // 如果不是周期执行的任务执行父类的run
             else if (!periodic)
                 ScheduledFutureTask.super.run();
+            // 如果是周期执行的任务，执行父类的runAndReset
             else if (ScheduledFutureTask.super.runAndReset()) {
+                // 父类方法执行成功之后，执行下列两个方法
                 setNextRunTime();
                 reExecutePeriodic(outerTask);
             }
@@ -304,6 +318,7 @@ public class ScheduledThreadPoolExecutor
      *
      * @param periodic true if this task periodic, false if delayed
      */
+    // 判断任务在线程池中是否还需要运行
     boolean canRunInCurrentRunState(boolean periodic) {
         return isRunningOrShutdown(periodic ?
                                    continueExistingPeriodicTasksAfterShutdown :
@@ -321,16 +336,25 @@ public class ScheduledThreadPoolExecutor
      *
      * @param task the task
      */
+    // 提交任务时会执行该方法
     private void delayedExecute(RunnableScheduledFuture<?> task) {
+        // 如果线程池已经关闭则拒绝当前任务
         if (isShutdown())
             reject(task);
         else {
+            // 当当前任务添加到队列中
             super.getQueue().add(task);
+            // 1. 线程池已经关闭
+            // 2.线程池关闭后当前线程是否还需要运行
+            // 3.2返回false,则从阻塞队列中移除当前任务
             if (isShutdown() &&
                 !canRunInCurrentRunState(task.isPeriodic()) &&
                 remove(task))
+                // 线程池关闭后当前线程不需要执行，则取消当前任务
                 task.cancel(false);
+            /* 执行到这里说明线程池没有关闭 */
             else
+                // 启动worker来执行任务
                 ensurePrestart();
         }
     }
@@ -396,6 +420,7 @@ public class ScheduledThreadPoolExecutor
      * @return a task that can execute the runnable
      * @since 1.6
      */
+    // 返回的是第二个参数task
     protected <V> RunnableScheduledFuture<V> decorateTask(
         Runnable runnable, RunnableScheduledFuture<V> task) {
         return task;
@@ -426,6 +451,8 @@ public class ScheduledThreadPoolExecutor
      *        if they are idle, unless {@code allowCoreThreadTimeOut} is set
      * @throws IllegalArgumentException if {@code corePoolSize < 0}
      */
+    // 构造方法调用了父类ThreadPoolExecutor的构造方法，并且参数都是固定好的
+    // 阻塞队列是自己内部实现的一个队列
     public ScheduledThreadPoolExecutor(int corePoolSize) {
         super(corePoolSize, Integer.MAX_VALUE, 0, NANOSECONDS,
               new DelayedWorkQueue());
@@ -489,6 +516,7 @@ public class ScheduledThreadPoolExecutor
     /**
      * Returns the trigger time of a delayed action.
      */
+    // 返回延迟操作的触发时间，如果delay < 0 则为0
     private long triggerTime(long delay, TimeUnit unit) {
         return triggerTime(unit.toNanos((delay < 0) ? 0 : delay));
     }
@@ -527,6 +555,7 @@ public class ScheduledThreadPoolExecutor
                                        TimeUnit unit) {
         if (command == null || unit == null)
             throw new NullPointerException();
+        // 返回的t传进入的第二个参数
         RunnableScheduledFuture<?> t = decorateTask(command,
             new ScheduledFutureTask<Void>(command, null,
                                           triggerTime(delay, unit)));
@@ -555,6 +584,7 @@ public class ScheduledThreadPoolExecutor
      * @throws NullPointerException       {@inheritDoc}
      * @throws IllegalArgumentException   {@inheritDoc}
      */
+    //
     public ScheduledFuture<?> scheduleAtFixedRate(Runnable command,
                                                   long initialDelay,
                                                   long period,

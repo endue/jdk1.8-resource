@@ -900,6 +900,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *
      * @param shutdownOK true if should return true if SHUTDOWN
      */
+    // 判断任务在线程池SHUTDOWN后是否还需要运行
     final boolean isRunningOrShutdown(boolean shutdownOK) {
         int rs = runStateOf(ctl.get());
         return rs == RUNNING || (rs == SHUTDOWN && shutdownOK);
@@ -1788,8 +1789,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
     void ensurePrestart() {
         int wc = workerCountOf(ctl.get());
+        // 工作线程数小于corePoolSize，创建worker
         if (wc < corePoolSize)
             addWorker(null, true);
+        // wc >= corePoolSize && wc == 0那么corePoolSize设置的应该是0
+        // 此时需要增加一个线程来执行任务
         else if (wc == 0)
             addWorker(null, false);
     }

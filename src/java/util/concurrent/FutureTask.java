@@ -332,11 +332,14 @@ public class FutureTask<V> implements RunnableFuture<V> {
      * @return {@code true} if successfully run and reset
      */
     protected boolean runAndReset() {
+        // 任务状态不为NEW 或 已经有生成者线程执行任务则直接返回
         if (state != NEW ||
             !UNSAFE.compareAndSwapObject(this, runnerOffset,
                                          null, Thread.currentThread()))
             return false;
+        // 记录执行是否成功
         boolean ran = false;
+        // 记录线程执行前状态
         int s = state;
         try {
             Callable<V> c = callable;
@@ -358,6 +361,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
             if (s >= INTERRUPTING)
                 handlePossibleCancellationInterrupt(s);
         }
+        // 返回结果
         return ran && s == NEW;
     }
 
