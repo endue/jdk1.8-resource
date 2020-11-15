@@ -118,8 +118,11 @@ abstract class Striped64 extends Number {
      * form of CAS here, if it were provided.
      */
     @sun.misc.Contended static final class Cell {
+        // 唯一的属性值，被volatile修饰
         volatile long value;
+        // 唯一的构造方法，初始化value的值
         Cell(long x) { value = x; }
+        // cas操作修改value的值，Unsafe类内部只修改一次
         final boolean cas(long cmp, long val) {
             return UNSAFE.compareAndSwapLong(this, valueOffset, cmp, val);
         }
@@ -140,6 +143,7 @@ abstract class Striped64 extends Number {
     }
 
     /** Number of CPUS, to place bound on table size */
+    // 计算cpu数量
     static final int NCPU = Runtime.getRuntime().availableProcessors();
 
     /**
@@ -159,7 +163,7 @@ abstract class Striped64 extends Number {
      * Spinlock (locked via CAS) used when resizing and/or creating Cells.
      */
     // 创建、修改cells的标识符，当线程创建、修改cells时
-    // 只有CAS修改cellsBusy标识符成功才能获得成功
+    // 只有CAS修改cellsBusy标识符成功才能获得权限
     // 0表示没有人修改，1表示有
     transient volatile int cellsBusy;
 
@@ -172,6 +176,7 @@ abstract class Striped64 extends Number {
     /**
      * CASes the base field.
      */
+    // cas修改base
     final boolean casBase(long cmp, long val) {
         return UNSAFE.compareAndSwapLong(this, BASE, cmp, val);
     }
@@ -179,6 +184,7 @@ abstract class Striped64 extends Number {
     /**
      * CASes the cellsBusy field from 0 to 1 to acquire lock.
      */
+    // cas操作cellsBusy，获取执行cells数组的权限
     final boolean casCellsBusy() {
         return UNSAFE.compareAndSwapInt(this, CELLSBUSY, 0, 1);
     }
@@ -187,6 +193,7 @@ abstract class Striped64 extends Number {
      * Returns the probe value for the current thread.
      * Duplicated from ThreadLocalRandom because of packaging restrictions.
      */
+    // 获取当前线程的探针值
     static final int getProbe() {
         return UNSAFE.getInt(Thread.currentThread(), PROBE);
     }
@@ -214,7 +221,7 @@ abstract class Striped64 extends Number {
      * @param x the value
      * @param fn the update function, or null for add (this convention
      * avoids the need for an extra field or function in LongAdder).
-     * @param wasUncontended false if CAS failed before call
+     * @param wasUncontended false if CAS failed before call 在调用该方法之前，是否cas修改base失败
      */
     final void longAccumulate(long x, LongBinaryOperator fn,
                               boolean wasUncontended) {
