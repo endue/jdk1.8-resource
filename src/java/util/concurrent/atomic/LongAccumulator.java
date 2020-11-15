@@ -77,12 +77,14 @@ import java.util.function.LongBinaryOperator;
  * @since 1.8
  * @author Doug Lea
  */
-// 该方法和LongAdder类似,不同点是多了一个接口函数function
+// 该方法和LongAdder类似,不同点是多了一个接口函数function，赋予了base一个初始值
 // 在累加计算的时候不是像LongAdder那样x + v，而是fn.applyAsLong(v, x)
+// 也相对于LongAdder的sum相关方法，在该类都变为了get相关操作
 public class LongAccumulator extends Striped64 implements Serializable {
     private static final long serialVersionUID = 7249069246863182397L;
-
+    // 二元接口函数
     private final LongBinaryOperator function;
+    // 初始值
     private final long identity;
 
     /**
@@ -94,6 +96,7 @@ public class LongAccumulator extends Striped64 implements Serializable {
     public LongAccumulator(LongBinaryOperator accumulatorFunction,
                            long identity) {
         this.function = accumulatorFunction;
+        // 初始化了base为传入的identity
         base = this.identity = identity;
     }
 
@@ -104,9 +107,17 @@ public class LongAccumulator extends Striped64 implements Serializable {
      */
     public void accumulate(long x) {
         Cell[] as; long b, v, r; int m; Cell a;
+        // 1.cells不为null，优先操作cells
+        // 2.cells为null，基于function操作base(注意如果修改前后没有任何改变则认为操作失败)，获取一个值r && cas修改base成功
+        // cells不为null或者cas操作base失败进入if里面的代码
         if ((as = cells) != null ||
             (r = function.applyAsLong(b = base, x)) != b && !casBase(b, r)) {
             boolean uncontended = true;
+            // 1.cells为null
+            // 2.cells不为null但是没有初始化
+            // 3.cells已初始化但是当前线程对应的cell为null
+            // 4.当前线程对应cell不为null，但是基于function操作base前后值没有变化 或者 cas修改base失败
+            // 上述四个添加任何一个成立，都会进入longAccumulate方法
             if (as == null || (m = as.length - 1) < 0 ||
                 (a = as[getProbe() & m]) == null ||
                 !(uncontended =
@@ -125,6 +136,9 @@ public class LongAccumulator extends Striped64 implements Serializable {
      *
      * @return the current value
      */
+    // 获取值
+    // 由于Cell[]数组中保存的值都未执行function操作，
+    // 所有当取出对应的值后，需要与base执行该操作
     public long get() {
         Cell[] as = cells; Cell a;
         long result = base;
@@ -145,6 +159,9 @@ public class LongAccumulator extends Striped64 implements Serializable {
      * only be used when it is known that no threads are concurrently
      * updating.
      */
+    // 重置
+    // 重置后base为identity，
+    // 并且Cell[]数组中每一个Cell对象的初始值也被设置为identity
     public void reset() {
         Cell[] as = cells; Cell a;
         base = identity;
