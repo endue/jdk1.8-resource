@@ -174,6 +174,7 @@ public class FutureTask<V> implements RunnableFuture<V> {
         return state != NEW;
     }
 
+    // 状态变更流程 NEW -> INTERRUPTING -> INTERRUPTED
     public boolean cancel(boolean mayInterruptIfRunning) {
         // 这里需要判断state是NEW，然后在生产者线程执行set或setException方法之前，都是可以成功的
         // 如果消费者是在生产者线程执行run方法的if (c != null && state == NEW)之前就执行了cancel函数，那么才可以终止生产者执行task。
@@ -362,6 +363,10 @@ public class FutureTask<V> implements RunnableFuture<V> {
                 handlePossibleCancellationInterrupt(s);
         }
         // 返回结果
+        // callable执行没有报错 && 当前task没有被取消，也就是下面的状态转换
+        // NEW -> COMPLETING -> EXCEPTIONAL
+        // NEW -> CANCELLED
+        // NEW -> INTERRUPTING -> INTERRUPTED
         return ran && s == NEW;
     }
 

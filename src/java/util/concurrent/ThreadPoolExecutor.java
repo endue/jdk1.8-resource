@@ -903,6 +903,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     // 判断任务在线程池SHUTDOWN后是否还需要运行
     final boolean isRunningOrShutdown(boolean shutdownOK) {
         int rs = runStateOf(ctl.get());
+        // 1. 线程池状态是RUNNING 直接返回true
+        // 2. 线程池状态是SHUTDOWN时不要判断参数shutdownOK
         return rs == RUNNING || (rs == SHUTDOWN && shutdownOK);
     }
 
