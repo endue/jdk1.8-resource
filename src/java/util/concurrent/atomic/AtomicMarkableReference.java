@@ -152,8 +152,11 @@ public class AtomicMarkableReference<V> {
                                  boolean newMark) {
         Pair<V> current = pair;
         return
+            // 就数据和当前一致
             expectedReference == current.reference &&
+            // 旧标记和当前一致
             expectedMark == current.mark &&
+            // 新数据和新标记 和当前一致 或者 cas修改pair成功
             ((newReference == current.reference &&
               newMark == current.mark) ||
              casPair(current, Pair.of(newReference, newMark)));
@@ -167,6 +170,7 @@ public class AtomicMarkableReference<V> {
      */
     public void set(V newReference, boolean newMark) {
         Pair<V> current = pair;
+        // 旧数据不等于新数据 或 旧标记不等于新标记
         if (newReference != current.reference || newMark != current.mark)
             this.pair = Pair.of(newReference, newMark);
     }
