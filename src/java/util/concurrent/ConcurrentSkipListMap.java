@@ -679,7 +679,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     K k = n.key;
                     // n节点被删除
                     if (n.value == null) {
-                        // 将q.right修改为r.right
+                        // 将q.right修改为r.right  q -> r -> X 修改为 q -> X
                         if (!q.unlink(r))// 操作失败，说明r节点发生了变更，也就是链表发生了变更，需要再次从头开始遍历
                             break;           // restart
                         // 修改成功，继续获取右侧节点遍历
@@ -694,7 +694,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                         continue;
                     }
                 }
-                /* 走到这里说明head节点所在的层没有找到该节点，继续遍历下一层 */
+                /* 走到这里说明q节点所在的层没有找到该节点，继续遍历下一层 */
 
                 // 如果q.down == null说明遍历到了最底层
                 // 只能返回q.node
@@ -1035,35 +1035,57 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             throw new NullPointerException();
         Comparator<? super K> cmp = comparator;
         outer: for (;;) {
+            // 找到key的前驱节点b，然后从b.next开始遍历
             for (Node<K,V> b = findPredecessor(key, cmp), n = b.next;;) {
                 Object v; int c;
+                // n为null，说明已经到达最底层的最右侧，退出循环，没找到key对应的节点
                 if (n == null)
                     break outer;
                 Node<K,V> f = n.next;
+                // n现在不是b.next节点
+                // 需要重新开始
                 if (n != b.next)                    // inconsistent read
                     break;
+                // n被删除了
                 if ((v = n.value) == null) {        // n is deleted
                     n.helpDelete(b, f);
                     break;
                 }
+                // b被删除了
                 if (b.value == null || v == n)      // b is deleted
                     break;
+                // 查找的key比n节点的key小，那么一定是没有查找到要删除的元素,退出循环
                 if ((c = cpr(cmp, key, n.key)) < 0)
                     break outer;
+                // 如果c > 0 ，说明查找的key比n节点的key大，继续向右侧移动
                 if (c > 0) {
                     b = n;
                     n = f;
                     continue;
                 }
+                /* 执行到这里说明c为0，也就是找到了要删除的元素 */
+                // 如果传入的参数value不为null，比较v是否等于value
                 if (value != null && !value.equals(v))
                     break outer;
+                // 修改n的value值为null，如果修改失败从新执行最外层循环
+                // 此时只是标记n被删除，它还有和前后节点的连接
                 if (!n.casValue(v, null))
                     break;
+                // 操作1.执行前 b -> n -> f 执行后 b -> n -> newNode -> f
+                //      newNode: this.key = null;this.value = this;
+                // 操作2.执行前 b -> n -> f 执行后 b -> f
                 if (!n.appendMarker(f) || !b.casNext(n, f))
+                    // 以上两个操作，任意一个执行失败，进入此分支
+                    // findNode内部有helpDelete操作，帮忙删除
                     findNode(key);                  // retry via findNode
                 else {
+                    // 以上两个操作，任意都执行成功，进入此分支
+
+                    // 把在查找过程中遇到的需要删除的节点都清理掉
                     findPredecessor(key, cmp);      // clean index
+                    // 下面这个判断说明，最高层只有一个head了，此时要降层
                     if (head.right == null)
+                        // 降层操作
                         tryReduceLevel();
                 }
                 @SuppressWarnings("unchecked") V vv = (V)v;
@@ -1095,7 +1117,9 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      */
     private void tryReduceLevel() {
         HeadIndex<K,V> h = head;
+        // d记录head.down
         HeadIndex<K,V> d;
+        // e记录d.down
         HeadIndex<K,V> e;
         if (h.level > 3 &&
             (d = (HeadIndex<K,V>)h.down) != null &&
