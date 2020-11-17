@@ -83,6 +83,7 @@ public interface TransferQueue<E> extends BlockingQueue<E> {
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      */
+    // 如果存在一个消费者已经等待接收它，则立即传送指定的元素，否则返回false，并且不进入队列。
     boolean tryTransfer(E e);
 
     /**
@@ -102,6 +103,7 @@ public interface TransferQueue<E> extends BlockingQueue<E> {
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      */
+    // 如果存在一个消费者已经等待接收它，则立即传送指定的元素，否则等待直到元素被消费者接收
     void transfer(E e) throws InterruptedException;
 
     /**
@@ -131,6 +133,7 @@ public interface TransferQueue<E> extends BlockingQueue<E> {
      * @throws IllegalArgumentException if some property of the specified
      *         element prevents it from being added to this queue
      */
+    // 在tryTransfer方法的基础上设置超时时间
     boolean tryTransfer(E e, long timeout, TimeUnit unit)
         throws InterruptedException;
 
@@ -142,6 +145,7 @@ public interface TransferQueue<E> extends BlockingQueue<E> {
      *
      * @return {@code true} if there is at least one waiting consumer
      */
+    // 如果至少有一位消费者在等待，则返回true
     boolean hasWaitingConsumer();
 
     /**
@@ -157,5 +161,6 @@ public interface TransferQueue<E> extends BlockingQueue<E> {
      *
      * @return the number of consumers waiting to receive elements
      */
+    // 获取所有等待获取元素的消费线程数量
     int getWaitingConsumerCount();
 }

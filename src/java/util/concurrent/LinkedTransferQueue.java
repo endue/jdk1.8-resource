@@ -449,16 +449,22 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * ordered wrt other accesses or CASes use simple relaxed forms.
      */
     static final class Node {
+        // 如果是消费者的节点，isData为false，如果是生产者节点的则为true
         final boolean isData;   // false if this is a request node
+        // 数据值，如果是消费者节点，则item为null
         volatile Object item;   // initially non-null if isData; CASed to match
+        // 指向下一个节点
         volatile Node next;
+        // 等待线程
         volatile Thread waiter; // null until waiting
 
         // CAS methods for fields
+        // cas操作设置节点的next值
         final boolean casNext(Node cmp, Node val) {
             return UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
         }
 
+        // cas操作设置节点的item值
         final boolean casItem(Object cmp, Object val) {
             // assert cmp == null || cmp.getClass() != Node.class;
             return UNSAFE.compareAndSwapObject(this, itemOffset, cmp, val);
@@ -468,6 +474,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * Constructs a new node.  Uses relaxed write because item can
          * only be seen after publication via casNext.
          */
+        // 构造方法
         Node(Object item, boolean isData) {
             UNSAFE.putObject(this, itemOffset, item); // relaxed write
             this.isData = isData;
@@ -477,6 +484,8 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * Links node to itself to avoid garbage retention.  Called
          * only after CASing head field, so uses relaxed write.
          */
+        // 将节点的next指向自己
+        // todo forgetNext?
         final void forgetNext() {
             UNSAFE.putObject(this, nextOffset, this);
         }
@@ -490,6 +499,9 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * follows either CAS or return from park (if ever parked;
          * else we don't care).
          */
+        // 设置item为自己
+        // 设置waiter为null
+        // todo forgetContents?
         final void forgetContents() {
             UNSAFE.putObject(this, itemOffset, this);
             UNSAFE.putObject(this, waiterOffset, null);
@@ -499,6 +511,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * Returns true if this node has been matched, including the
          * case of artificial matches due to cancellation.
          */
+        // 节点是否被匹配
         final boolean isMatched() {
             Object x = item;
             return (x == this) || ((x == null) == isData);
@@ -507,6 +520,8 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         /**
          * Returns true if this is an unmatched request node.
          */
+        // 节点是否是一个未匹配的请求节点
+        // 如果是的话那么isData = false，item = null
         final boolean isUnmatchedRequest() {
             return !isData && item == null;
         }
@@ -516,6 +531,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
          * appended to this node because this node is unmatched and
          * has opposite data mode.
          */
+        // 如果给定节点不能连接在当前节点后则返回true
         final boolean cannotPrecede(boolean haveData) {
             boolean d = isData;
             Object x;
@@ -525,6 +541,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         /**
          * Tries to artificially match a data node -- used by remove.
          */
+        // 匹配一个数据节点
         final boolean tryMatchData() {
             // assert isData;
             Object x = item;
@@ -604,7 +621,17 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * @return an item if matched, else e
      * @throws NullPointerException if haveData mode but e is null
      */
+    // 入队操作：
+    //      xfer(e, true, ASYNC, 0)
+    //      xfer(e, true, NOW, 0)
+    //      xfer(e, true, SYNC, 0)
+    //      xfer(e, true, TIMED, unit.toNanos(timeout))
+    // 出队操作：
+    //      xfer(null, false, SYNC, 0)
+    //      xfer(null, false, NOW, 0)
+    //      xfer(null, false, TIMED, unit.toNanos(timeout))
     private E xfer(E e, boolean haveData, int how, long nanos) {
+        // 如果是haveData && e为null 则抛空指针一次
         if (haveData && (e == null))
             throw new NullPointerException();
         Node s = null;                        // the node to append, if needed
@@ -612,40 +639,68 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         retry:
         for (;;) {                            // restart on append race
 
-            for (Node h = head, p = h; p != null;) { // find & match first node
+            // 链表不为空
+            for (Node h = head, p = h; p != null;) {  // find & match first node
                 boolean isData = p.isData;
                 Object item = p.item;
+                // (item != null) == isData 说明p节点和创建时一样
                 if (item != p && (item != null) == isData) { // unmatched
+                    // 遍历的节点类型与本次操作类型一致,未匹配到
                     if (isData == haveData)   // can't match
                         break;
+                    // 找到匹配的节点
+                    // cas操作设置p的itme为e
                     if (p.casItem(item, e)) { // match
+                        // 如果p不是头结点
                         for (Node q = p; q != h;) {
+                            // 获取p的next节点n
                             Node n = q.next;  // update by 2 unless singleton
+                            // 更新head节点
                             if (head == h && casHead(h, n == null ? q : n)) {
+                                // h节点已经匹配成功将自己的next指向自身
                                 h.forgetNext();
                                 break;
                             }                 // advance and retry
+                            //
                             if ((h = head)   == null ||
                                 (q = h.next) == null || !q.isMatched())
                                 break;        // unless slack < 2
                         }
+                        // 如果p是头结点则直接唤醒
                         LockSupport.unpark(p.waiter);
+                        // 返回元素
                         return LinkedTransferQueue.<E>cast(item);
                     }
                 }
+                // 继续寻找下一个节点
                 Node n = p.next;
                 p = (p != n) ? n : (h = head); // Use head if p offlist
             }
 
+            // 走到这里说明没找到匹配的节点
+
+            // 那么会根据节点类型做不同的操作：
+            // NOW：立即返回，也不会插入节点
+            //SYNC：插入一个item为e（isData = haveData）到队列的尾部，然后自旋或阻塞当前线程直到节点被匹配或者取消。
+            //ASYNC：插入一个item为e（isData = haveData）到队列的尾部，不阻塞直接返回。
+            //TIMED：插入一个item为e（isData = haveData）到队列的尾部，然后自旋或阻塞当前线程直到节点被匹配或者取消或者超时
+
+            // 如果how类型不是NOW，那么判断s的值
             if (how != NOW) {                 // No matches available
+                // s为null，则创建一个新节点
                 if (s == null)
                     s = new Node(e, haveData);
+                // 将新节点s添加到队列尾并返回s的前驱节点
                 Node pred = tryAppend(s, haveData);
+                // 如果前驱为null，说明有其他线程竞争，并修改了队列，则从retry重新开始
                 if (pred == null)
                     continue retry;           // lost race vs opposite mode
+                // 不为ASYNC，那么可能是SYNC或TIMED
+                // 同步等待
                 if (how != ASYNC)
                     return awaitMatch(s, pred, e, (how == TIMED), nanos);
             }
+            // 如果 how == NOW 理解返回
             return e; // not waiting
         }
     }
@@ -662,10 +717,13 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     private Node tryAppend(Node s, boolean haveData) {
         for (Node t = tail, p = t;;) {        // move p to last node and append
             Node n, u;                        // temps for reads of next & tail
+            // 如果tail = null，head = null
+            // 说明队列为空，将当前节点s放入队头并返回自身
             if (p == null && (p = head) == null) {
                 if (casHead(null, s))
                     return s;                 // initialize
             }
+            //
             else if (p.cannotPrecede(haveData))
                 return null;                  // lost race vs opposite mode
             else if ((n = p.next) != null)    // not last; keep traversing

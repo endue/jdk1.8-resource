@@ -407,7 +407,7 @@ public class ThreadLocal<T> {
         /**
          * Increment i modulo len.
          */
-        // 向后计算下一个放入table数组的下标，每次从i的位置递增1，当长度为len是，返回0
+        // 向后计算下一个放入table数组的下标，每次从i的位置递增1，当长度为len时，返回0
         // 这说明table是一个环
         private static int nextIndex(int i, int len) {
             return ((i + 1 < len) ? i + 1 : 0);
@@ -416,7 +416,7 @@ public class ThreadLocal<T> {
         /**
          * Decrement i modulo len.
          */
-        // 向前计算
+        // 向前计算，每次递减1，当为0时，长度变为 len - 1
         private static int prevIndex(int i, int len) {
             return ((i - 1 >= 0) ? i - 1 : len - 1);
         }
