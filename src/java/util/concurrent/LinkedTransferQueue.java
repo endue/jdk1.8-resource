@@ -643,7 +643,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
             for (Node h = head, p = h; p != null;) {  // find & match first node
                 boolean isData = p.isData;
                 Object item = p.item;
-                // (item != null) == isData 说明p节点和创建时一样
+                // (item != null) == isData 说明p节点item没发生变化也就是和创建时一样
                 if (item != p && (item != null) == isData) { // unmatched
                     // 遍历的节点类型与本次操作类型一致,未匹配到
                     if (isData == haveData)   // can't match
@@ -681,9 +681,9 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
 
             // 那么会根据节点类型做不同的操作：
             // NOW：立即返回，也不会插入节点
-            //SYNC：插入一个item为e（isData = haveData）到队列的尾部，然后自旋或阻塞当前线程直到节点被匹配或者取消。
-            //ASYNC：插入一个item为e（isData = haveData）到队列的尾部，不阻塞直接返回。
-            //TIMED：插入一个item为e（isData = haveData）到队列的尾部，然后自旋或阻塞当前线程直到节点被匹配或者取消或者超时
+            // SYNC：插入一个item为e（isData = haveData）到队列的尾部，然后自旋或阻塞当前线程直到节点被匹配或者取消。
+            // ASYNC：插入一个item为e（isData = haveData）到队列的尾部，不阻塞直接返回。
+            // TIMED：插入一个item为e（isData = haveData）到队列的尾部，然后自旋或阻塞当前线程直到节点被匹配或者取消或者超时
 
             // 如果how类型不是NOW，那么判断s的值
             if (how != NOW) {                 // No matches available
@@ -692,7 +692,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     s = new Node(e, haveData);
                 // 将新节点s添加到队列尾并返回s的前驱节点
                 Node pred = tryAppend(s, haveData);
-                // 如果前驱为null，说明有其他线程竞争，并修改了队列，则从retry重新开始
+                // 如果前驱为null，说明队列中存在相反模式的节点，从头开始遍历
                 if (pred == null)
                     continue retry;           // lost race vs opposite mode
                 // 不为ASYNC，那么可能是SYNC或TIMED
@@ -723,9 +723,10 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 if (casHead(null, s))
                     return s;                 // initialize
             }
-            //
+            // p节点是否为相反模式的节点
             else if (p.cannotPrecede(haveData))
                 return null;                  // lost race vs opposite mode
+
             else if ((n = p.next) != null)    // not last; keep traversing
                 p = p != t && t != (u = tail) ? (t = u) : // stale tail
                     (p != n) ? n : null;      // restart if off list
