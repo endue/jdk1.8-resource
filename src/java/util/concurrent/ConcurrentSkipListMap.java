@@ -840,7 +840,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * @return the old value, or null if newly inserted
      */
     private V doPut(K key, V value, boolean onlyIfAbsent) {
-        // 如果是新增node，z记录新增node的记录
+        // 如果是新增node，z记录新增node的引用
         Node<K,V> z;             // added node
         if (key == null)
             throw new NullPointerException();
@@ -909,25 +909,39 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             if (level <= (max = h.level)) {
                 // 从低到高，层层建立index
                 for (int i = 1; i <= level; ++i)
+                    // 注意创建Index第二个参数就是之前的idx
                     idx = new Index<K,V>(z, idx, null);
             }
-            // 如果要建立的index层超过最大层数
+            // 如果要建立的Index层超过最大层数
             else { // try to grow by one level
                 // 那么就建立到比最大层在高一层的位置
                 level = max + 1; // hold in array and later pick the one to use
+                // 创建一个idxs数组来记录创建的从1到level的所有Index
                 @SuppressWarnings("unchecked")Index<K,V>[] idxs =
                     (Index<K,V>[])new Index<?,?>[level+1];
                 for (int i = 1; i <= level; ++i)
+                    // Index( node, down, right)
                     idxs[i] = idx = new Index<K,V>(z, idx, null);
+
                 for (;;) {
                     h = head;
+                    // 获取旧的层数
                     int oldLevel = h.level;
+                    // 如果旧的层数在这期间发生了变更，超过了当前level的层数，那么跳出for循环
                     if (level <= oldLevel) // lost race to add level
                         break;
+                    /* 执行到这里说明新level > oldLevel */
+                    // newh用来记录新的head节点
                     HeadIndex<K,V> newh = h;
                     Node<K,V> oldbase = h.node;
+                    // 遍历从oldLevel到新level还需要多少层
+                    // 之后建立索引，这里建立的索引是HeadIndex，而且会设置从oldLevel+1 -- level的right为idxs[]数组中对应下标位置的Index
                     for (int j = oldLevel+1; j <= level; ++j)
+                        // HeadIndex( node, down, right, level)
                         newh = new HeadIndex<K,V>(oldbase, newh, idxs[j], j);
+                    // 最后更新头节点为newh
+                    // h指向新head
+                    // level更新为oldLevel，idx指向那个需要与它前后建立连接的Index上
                     if (casHead(h, newh)) {
                         h = newh;
                         idx = idxs[level = oldLevel];
@@ -935,8 +949,12 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     }
                 }
             }
+            /* 执行到这里，为前面创建的Index建立连接 */
+
             // find insertion points and splice in
+            // insertionLevel记录之前最高的层数
             splice: for (int insertionLevel = level;;) {
+                // 记录当前最高的层数，此时j >= insertionLevel
                 int j = h.level;
                 for (Index<K,V> q = h, r = q.right, t = idx;;) {
                     if (q == null || t == null)
@@ -945,12 +963,17 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                         Node<K,V> n = r.node;
                         // compare before deletion check avoids needing recheck
                         int c = cpr(cmp, key, n.key);
+                        // n节点被删除
                         if (n.value == null) {
+                            // 断开q与r的连接
                             if (!q.unlink(r))
+                                // 断开失败，重新最外层for循环
                                 break;
+                            // 断开连接成功，获取q的下一个
                             r = q.right;
                             continue;
                         }
+                        // 如果当前key比节点n的key要大，那么继续右移查找节点
                         if (c > 0) {
                             q = r;
                             r = r.right;
@@ -958,17 +981,24 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                         }
                     }
 
+                    // 这段代码一开始是不执行的
                     if (j == insertionLevel) {
+                        // 设置 q -> r 变为 q -> t -> r
                         if (!q.link(r, t))
+                            // 失败后重新执行最外层循环
                             break; // restart
+                        // t节点被删除了
                         if (t.node.value == null) {
+                            // 删除被标记的节点
                             findNode(key);
+                            // 跳出循环，因为节点被删了，索引就没必要了
                             break splice;
                         }
+                        // 说明到达了最低层，跳出所有循环
                         if (--insertionLevel == 0)
                             break splice;
                     }
-
+                    // 层层下降
                     if (--j >= insertionLevel && j < level)
                         t = t.down;
                     q = q.down;
