@@ -360,11 +360,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
     /**
      * Special value used to identify base-level header
      */
+    // 创建HeadIndex时传入的value值，每个层的头结点值都是BASE_HEADER
     private static final Object BASE_HEADER = new Object();
 
     /**
      * The topmost head index of the skiplist.
      */
+    // 跳转中最顶端的头索引
     private transient volatile HeadIndex<K,V> head;
 
     /**
@@ -373,6 +375,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * nested classes.)
      * @serial
      */
+    // 比较器
     final Comparator<? super K> comparator;
 
     /** Lazily initialized key set */
@@ -444,6 +447,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         /**
          * compareAndSet value field
          */
+        // cas修改value
         boolean casValue(Object cmp, Object val) {
             return UNSAFE.compareAndSwapObject(this, valueOffset, cmp, val);
         }
@@ -451,6 +455,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         /**
          * compareAndSet next field
          */
+        // cas修改next
         boolean casNext(Node<K,V> cmp, Node<K,V> val) {
             return UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
         }
@@ -464,6 +469,8 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          *
          * @return true if this node is a marker node
          */
+        // 判断是否为marker节点
+        // 因为marker节点的value是自己
         boolean isMarker() {
             return value == this;
         }
@@ -472,6 +479,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * Returns true if this node is the header of base-level list.
          * @return true if this node is header node
          */
+        // 判断是否为索引的头结点
         boolean isBaseHeader() {
             return value == BASE_HEADER;
         }
@@ -481,6 +489,10 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * @param f the assumed current successor of this node
          * @return true if successful
          */
+        // 设置当前节点的next为一个marker节点
+        // f是当前节点的后继节点
+        // 这里可以看出创建的节点就是一个marker节点，然后Node为marker节点，然后marker节点的value就是Node自身
+        // 之前:n -> f ,变更后:n -> marker -> f
         boolean appendMarker(Node<K,V> f) {
             return casNext(f, new Node<K,V>(f));
         }
@@ -489,9 +501,10 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * Helps out a deletion by appending marker or unlinking from
          * predecessor. This is called during traversals when value
          * field seen to be null.
-         * @param b predecessor
-         * @param f successor
+         * @param b predecessor 当前节点的前驱节点
+         * @param f successor 当前节点的后继节点
          */
+        // 调用该方法其实是帮助删除当前节点
         void helpDelete(Node<K,V> b, Node<K,V> f) {
             /*
              * Rechecking links and then doing only one of the
@@ -499,9 +512,14 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
              * interference among helping threads.
              */
             if (f == next && this == b.next) {
+                // f == null 当前节点没有后继节点
+                // f.value != f 当前节点后继节点还不是marker节点
                 if (f == null || f.value != f) // not already marked
+                    // 设置当前节点的next为一个marker节点
                     casNext(f, new Node<K,V>(f));
+                // 执行到这里一定是f.value == f，说明当前节点的后继是个marker节点
                 else
+                    // 直接断开当前节点的前后连接即可
                     b.casNext(this, f.next);
             }
         }
@@ -512,6 +530,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * @return this node's value if it isn't a marker or header or
          * is deleted, else null
          */
+        // 获取当前节点是有效的节点，就返回对应的值
         V getValidValue() {
             Object v = value;
             if (v == this || v == BASE_HEADER)
@@ -579,6 +598,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         /**
          * compareAndSet right field
          */
+        // cas修改right
         final boolean casRight(Index<K,V> cmp, Index<K,V> val) {
             return UNSAFE.compareAndSwapObject(this, rightOffset, cmp, val);
         }
@@ -587,6 +607,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * Returns true if the node this indexes has been deleted.
          * @return true if indexed node is known to be deleted
          */
+        // 判断索引的节点是否已被删除，已删除则返回true
         final boolean indexesDeletedNode() {
             return node.value == null;
         }
@@ -599,9 +620,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * @param newSucc the new successor
          * @return true if successful
          */
+        // cas修改right,增加与newSucc的连接，如，操作前:n -> f,操作后: n -> b -> f
+        // b就是newSucc，f就是succ
         final boolean link(Index<K,V> succ, Index<K,V> newSucc) {
             Node<K,V> n = node;
             newSucc.right = succ;
+            // n.value != null 验证当前索引对应的节点是否被删除
+            // 如果没有被删除，那么cas操作更新right
             return n.value != null && casRight(succ, newSucc);
         }
 
@@ -612,6 +637,8 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
          * @param succ the expected current successor
          * @return true if successful
          */
+        // cas修改right,断开与succ索引的连接，如，操作前:n -> b -> f,操作后: n -> f
+        // succ为当前索引的后继索引，也就是上面的b
         final boolean unlink(Index<K,V> succ) {
             return node.value != null && casRight(succ, succ.right);
         }
@@ -636,6 +663,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
     /**
      * Nodes heading each level keep track of their level.
      */
+    //每个level的头结点类型
     static final class HeadIndex<K,V> extends Index<K,V> {
         final int level;
         HeadIndex(Node<K,V> node, Index<K,V> down, Index<K,V> right, int level) {
@@ -1027,7 +1055,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      *
      * @param key the key
      * @param value if non-null, the value that must be
-     * associated with key
+     * associated with key value不为空，则一定要求与key关联
      * @return the node, or null if not found
      */
     final V doRemove(Object key, Object value) {
@@ -1038,23 +1066,25 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             // 找到key的前驱节点b，然后从b.next开始遍历
             for (Node<K,V> b = findPredecessor(key, cmp), n = b.next;;) {
                 Object v; int c;
-                // n为null，说明已经到达最底层的最右侧，退出循环，没找到key对应的节点
+                // n为null，说明已经到达最底层的最右侧，退出循环，此时没找到key对应的节点
                 if (n == null)
                     break outer;
                 Node<K,V> f = n.next;
-                // n现在不是b.next节点
-                // 需要重新开始
+
+                /* 此时结果：b -> n -> f */
+
+                // n现在不是b.next节点，链表发生了变更，需要重新开始
                 if (n != b.next)                    // inconsistent read
                     break;
-                // n被删除了
+                // n被删除了，那么帮忙删除节点n，删除后链表为 b -> f，需要重新开始
                 if ((v = n.value) == null) {        // n is deleted
                     n.helpDelete(b, f);
                     break;
                 }
-                // b被删除了
+                // b被删除了(1.b的value是null(删除节点的第一步)、2.b的next是一个marker节点(删除节点的第二步))
                 if (b.value == null || v == n)      // b is deleted
                     break;
-                // 查找的key比n节点的key小，那么一定是没有查找到要删除的元素,退出循环
+                // 查找的key比n节点的key小，(之前都是一直比key大，这次比key小，没有相等的节点)一定是没有查找到要删除的元素,退出循环
                 if ((c = cpr(cmp, key, n.key)) < 0)
                     break outer;
                 // 如果c > 0 ，说明查找的key比n节点的key大，继续向右侧移动
@@ -1064,18 +1094,22 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     continue;
                 }
                 /* 执行到这里说明c为0，也就是找到了要删除的元素 */
+
                 // 如果传入的参数value不为null，比较v是否等于value
+                // 如果不相等，那么还需要重新循环查找，直到找到或找完整个链表
                 if (value != null && !value.equals(v))
                     break outer;
-                // 修改n的value值为null，如果修改失败从新执行最外层循环
+                // 执行到这里，开始删除节点n
+                // 首先修改n的value为null，如果修改失败从新执行最外层循环
                 // 此时只是标记n被删除，它还有和前后节点的连接
                 if (!n.casValue(v, null))
                     break;
-                // 操作1.执行前 b -> n -> f 执行后 b -> n -> newNode -> f
-                //      newNode: this.key = null;this.value = this;
-                // 操作2.执行前 b -> n -> f 执行后 b -> f
+                // 修改n的value为null，成功后，继续执行
+                // 操作1设置n的后继节点为一个marker节点.执行前 b -> n -> f 执行后 b -> n -> newNode -> f
+                // 操作2删除n修改n的前驱的后继为n的后继.执行前 b -> n -> f 执行后 b -> f
                 if (!n.appendMarker(f) || !b.casNext(n, f))
                     // 以上两个操作，任意一个执行失败，进入此分支
+
                     // findNode内部有helpDelete操作，帮忙删除
                     findNode(key);                  // retry via findNode
                 else {
