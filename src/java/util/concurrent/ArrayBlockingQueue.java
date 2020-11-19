@@ -81,8 +81,8 @@ import java.util.Spliterator;
  */
 
 /**
- * 有界的数组，支持并发操作，依赖于锁机制
- * 读和放分别依赖两个指针来操作
+ * FIFO的有界队列，底层是数组实现，支持并发操作，依赖于内部的一个Lock锁，
+ * 读取和写入操作首先需要获取Lock锁，然后在分别依赖两个"指针"来完成同时两个操作还各支持阻塞式的操作
  */
 public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         implements BlockingQueue<E>, java.io.Serializable {
@@ -100,11 +100,11 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     final Object[] items;
 
     /** items index for next take, poll, peek or remove */
-    // 记录当前可取数据的开始位置
+    // 记录当前可出队的位置
     int takeIndex;
 
     /** items index for next put, offer, or add */
-    // 记录当前可放数据的开始位置
+    // 记录当前可入队的位置
     int putIndex;
 
     /** Number of elements in the queue */
@@ -121,11 +121,11 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     final ReentrantLock lock;
 
     /** Condition for waiting takes */
-    // 等待队列，唤醒取数据的线程
+    // 等待队列，唤醒等待出队的线程
     private final Condition notEmpty;
 
     /** Condition for waiting puts */
-    // 等待队列，唤醒放数据的线程
+    // 等待队列，唤醒等待入队的线程
     private final Condition notFull;
 
     /**
@@ -171,11 +171,12 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
     private void enqueue(E x) {
         // assert lock.getHoldCount() == 1;
         // assert items[putIndex] == null;
+        // 0.首先在执行当前方法前已经获取了锁
         // 1 获取当前的数组
         // 2 将数据保存到putIndex的位置
-        // 3.putIndex + 1操作，之后putIndex大小为数组长度，那么下次放数据的位置应该为数组的开始位置
+        // 3.putIndex + 1操作，如果putIndex大小为数组长度，那么下次放数据的位置应该为数组的开始位置0
         // 4.记录数据总量+1
-        // 5.唤醒取数据的线程
+        // 5.唤醒等待出队线程
         final Object[] items = this.items;
         items[putIndex] = x;
         if (++putIndex == items.length)
@@ -197,8 +198,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         // 3 将takeIndex位置置空
         // 4 takeIndex++，之后takeIndex大小为数组长度，那么下次取数据的位置应该为数组的开始位置
         // 5 记录数据总量 - 1
-        // 6 todo 出对这里调用itrs？
-        // 7 唤醒取数据的线程
+        // 6 todo 出队这里调用itrs？
+        // 7 唤醒入队的线程
         final Object[] items = this.items;
         @SuppressWarnings("unchecked")
         E x = (E) items[takeIndex];
@@ -219,7 +220,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      */
     // 分2种情况：
     // 1：删除的位置 = takeIndex，如takeIndex是2，删除的位置也是2，那就把位置2的数据置为null,之后重新计算takeIndex为3，如果数组长度为3，talkIndex需要改为0。
-    // 2：删除的位置 != takeIndex，找到要删除元素的下一个，移动删除元素和putIndex之间的数据
+    // 2：删除的位置 != takeIndex，找到要删除元素的下一个，移动(删除元素位置 + 1)与putIndex之间的数据 到 删除元素位置与putIndex位置 - 1直接，最后将putIndex位置置空
     void removeAt(final int removeIndex) {
         // assert lock.getHoldCount() == 1;
         // assert items[removeIndex] != null;
@@ -231,6 +232,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
             // 将删除位置的内容置为null
             items[takeIndex] = null;
             // 将下次要取数据的位置 + 1
+            // 如果已经为数组的长度，那么下次出队的位置应该为0
             if (++takeIndex == items.length)
                 takeIndex = 0;
             count--;
@@ -241,7 +243,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
 
             // slide over all others up through putIndex.
             final int putIndex = this.putIndex;
-            // 从删除位置开始移动数据
+            // 从删除位置 + 1 开始移动数据
             for (int i = removeIndex;;) {
                 int next = i + 1;
                 if (next == items.length)
@@ -382,9 +384,8 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
      * @throws InterruptedException {@inheritDoc}
      * @throws NullPointerException {@inheritDoc}
      */
-    // put方法不同offer(或add)方法，它是有阻塞等待的
-    // 如果队列没空间就阻塞当前线程
-    // 如果队列有空间就直接放入数据
+    // put方法不同offer,它有阻塞等待并且在获取锁之前是可以中断的
+    // 队列没空间就阻塞,有空间就放入数据
     public void put(E e) throws InterruptedException {
         checkNotNull(e);
         final ReentrantLock lock = this.lock;
@@ -411,13 +412,16 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         throws InterruptedException {
 
         checkNotNull(e);
+        // 获取超时时间
         long nanos = unit.toNanos(timeout);
         final ReentrantLock lock = this.lock;
         lock.lockInterruptibly();
         try {
             while (count == items.length) {
+                // 等待超时，返回false
                 if (nanos <= 0)
                     return false;
+                // 还有等待时间，调用带超时时间的await方法awaitNanos
                 nanos = notFull.awaitNanos(nanos);
             }
             enqueue(e);
@@ -450,7 +454,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         }
     }
 
-    // poll拉取数据，不阻塞等待
+    // poll拉取数据，带超时时间的阻塞等待
     public E poll(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
         final ReentrantLock lock = this.lock;
@@ -551,6 +555,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
                 int i = takeIndex;
                 do {
                     if (o.equals(items[i])) {
+                        // 执行到这里说明找到了要删除的元素
                         removeAt(i);
                         return true;
                     }
