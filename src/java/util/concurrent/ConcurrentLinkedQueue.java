@@ -102,6 +102,13 @@ import java.util.function.Consumer;
  * @author Doug Lea
  * @param <E> the type of elements held in this collection
  */
+
+/**
+ * FIFO的无界队列，底层是单链表实现，支持并发操作，依赖于无锁化的cas操作和自旋锁，
+ * 读取和写入操作依赖两个"指针"head、tail来完成，队头出队，队尾出队，还支持从内部
+ * 某个位置删除节点
+ * @param <E>
+ */
 public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
         implements Queue<E>, java.io.Serializable {
     private static final long serialVersionUID = 196745693267521676L;
@@ -186,18 +193,19 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
          * Constructs a new node.  Uses relaxed write because item can
          * only be seen after publication via casNext.
          */
+        // 构造方法
         Node(E item) {
             UNSAFE.putObject(this, itemOffset, item);
         }
-
+        // cas修改item值
         boolean casItem(E cmp, E val) {
             return UNSAFE.compareAndSwapObject(this, itemOffset, cmp, val);
         }
-
+        // cas修改next值，只保证有序性不保证可见性
         void lazySetNext(Node<E> val) {
             UNSAFE.putOrderedObject(this, nextOffset, val);
         }
-
+        // cas修改next值
         boolean casNext(Node<E> cmp, Node<E> val) {
             return UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
         }
@@ -338,8 +346,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
         // t局部变量记录tail
         for (Node<E> t = tail, p = t;;) {
             Node<E> q = p.next;
-            // p的next为null
-            // p此时是last node
+            // p的next为null,说明p此时是last node
             if (q == null) {
                 // p is last node
                 // 尝试CAS操作更新p的next为新节点
@@ -380,6 +387,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
         }
     }
 
+    // 出队
     public E poll() {
         restartFromHead:
         for (;;) {
@@ -387,26 +395,33 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
             // 移动p节点查找第一个元素然后出队，出队的元素就是p指向的节点，之后判断p和h是否相等，更新head
             for (Node<E> h = head, p = h, q;;) {
                 E item = p.item;
-                // 1.头结点的item不为null &&cas修改头结点成功
+                // 头结点的item不为null && cas修改头结点成功
+                // 如果cas修改失败说明被其他线程先执行了出队操作，继续向后执行
                 if (item != null && p.casItem(item, null)) {
                     // Successful CAS is the linearization point
                     // for item to be removed from this queue.
-                    // p不等于h，更新head为p或者p的next
-                    //这里保证p的后继存在才将头结点更新为p的后继
-                    //否则头结点更新为p本身，因为p后面没有节点了
+                    // p不等于h，说明在遍历过程中p发生了后移操作，也就是当前的head不是最新的hae，
+                    // 那么需要更新head最新的head
+                    // 最新的head具体是p还是p.next的q，这里需要判断
+                    // 1.(q = p.next) == null,也就是说当前节点p没有后续节点了，那么更新head为p即可
+                    // 2.(q = p.next) != null，也就是说当前节点p还有后续节点，那更新head为p的后继接口
                     if (p != h) // hop two nodes at a time
+                        // 这里会设置h的next指向自身
                         updateHead(h, ((q = p.next) != null) ? q : p);
                     return item;
                 }
                 //执行到这里，有两种情况：
-                //1. p的item发现为null
-                //2. p的item发现不为null，但CAS失败。说明别的线程抢先了出队操作,那么p的item也会为null的
-                //如果p是last node，说明找到最后都没有找到有效节点
+                //1. p的item != null，但是CAS失败，也就是p被其他线程先出队了，那么获取q = p.next节点
+                //  如果为q == null，那么说明当前队列遍历结束，没有后继节点可处理，此时的head可能(这里用可能是因为如果两个线程并发出队执行出队
+                //  而集合里只有一个元素，由于第一个执行出队的线程并不会更新head，所以此时最后一个线程需要更新一下)已经不是最新的head节点了，
+                //  那么更新head为最新的head，
+                //2. p的item == null，也是p被其他线程先出队了，判断是否还有后续节点可处理，如果没有那么可能需要更新head节点
                 else if ((q = p.next) == null) {
                     updateHead(h, p);
                     return null;
                 }
-                // p的后继节点为自己，p已经被删除，重新获取头结点
+                // 正常情况下，p = q，q = p.next一直执行下去是不会出现p == q的，当出现时说明节点p被删除了
+                // 这种情况在并发出队时会出现这种情况
                 else if (p == q)
                     continue restartFromHead;
                 // 继续寻找节点
@@ -441,17 +456,29 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      * and the need to add a retry loop to deal with the possibility
      * of losing a race to a concurrent poll().
      */
+    // 查找第一个可以出队的节点
     Node<E> first() {
         restartFromHead:
         for (;;) {
+            // h指向当前的head节点，相当于一个标记
+            // p、q两个节点用来向后遍历
             for (Node<E> h = head, p = h, q;;) {
+                // 判断p是否有元素
                 boolean hasItem = (p.item != null);
+                // 1.如果p有元素
+                // 2.p是当前队列的最后一个节点了
                 if (hasItem || (q = p.next) == null) {
+                    // 更新一下head为最新的p节点
+                    // 这里更新head是因为：
+                    // 1.由于else分支，导致当前的p不是当初的head了，也就是当初head不是最新的head
+                    // 2.当前队列只有一个元素p，而且还被其他线程抢先出队了
                     updateHead(h, p);
+                    // 然后更新p是否有元素返回p或者null
                     return hasItem ? p : null;
                 }
                 else if (p == q)
                     continue restartFromHead;
+                // 向后遍历
                 else
                     p = q;
             }
@@ -524,19 +551,34 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
      */
     public boolean remove(Object o) {
         if (o != null) {
+            // next和pred分别来记录p节点的前驱节点和后继节点： pred -> p -> next
+            // 首次执行的时候都为null，之后依次向后递进 pred = p，p = next，next = p.next
             Node<E> next, pred = null;
             for (Node<E> p = first(); p != null; pred = p, p = next) {
                 boolean removed = false;
                 E item = p.item;
+                // 首先获取节点的item不为null
+                // 为null就是被其他线程抢先删除了
                 if (item != null) {
+                    // 如果找到的节点的item和参数o不一致
                     if (!o.equals(item)) {
+                        // 继续向后遍历，获取p的后继节点
                         next = succ(p);
+                        // 如果一直找不到元素，这里会一直执行直到找到、队列遍历结束、遇到item为null的节点才停止
                         continue;
                     }
+                    // 执行到这里说明p就是要删除的元素o的节点
+                    // 设置p的item为null
                     removed = p.casItem(item, null);
                 }
-
+                // 1.item == null，p被其他线程出队了
+                // 2.item != null但是p.casItem(item, null)操作失败，也是p被其他出队了
+                // 3.item != null并且p.casItem(item, null)操作成功，p被当前线程出队了
+                // 继续获取p的后继节点
                 next = succ(p);
+                // 执行到这里，如果if条件成立，那么肯定当前循环不是首次循环
+                // 并且p节点被出队了，那么此时需要将p从当前队列中剔除连接
+                // 也就是之前的pred -> p -> next 修改为 pred -> next(注意此时被删除的p依旧指向next节点)
                 if (pred != null && next != null) // unlink
                     pred.casNext(p, next);
                 if (removed)
