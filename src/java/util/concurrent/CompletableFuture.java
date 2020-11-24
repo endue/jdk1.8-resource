@@ -215,6 +215,7 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * publication.
      */
 
+    // 记录执行结果
     volatile Object result;       // Either the result or boxed AltResult
     volatile Completion stack;    // Top of Treiber stack of dependent actions
 

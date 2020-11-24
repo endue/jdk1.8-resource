@@ -177,6 +177,7 @@ public class LinkedBlockingDeque<E>
      * Creates a {@code LinkedBlockingDeque} with a capacity of
      * {@link Integer#MAX_VALUE}.
      */
+    // 默认构造方法，最大容量Integer.MAX_VALUE
     public LinkedBlockingDeque() {
         this(Integer.MAX_VALUE);
     }
@@ -211,6 +212,7 @@ public class LinkedBlockingDeque<E>
             for (E e : c) {
                 if (e == null)
                     throw new NullPointerException();
+                // 从队尾插入元素
                 if (!linkLast(new Node<E>(e)))
                     throw new IllegalStateException("Deque full");
             }
@@ -229,18 +231,19 @@ public class LinkedBlockingDeque<E>
     private boolean linkFirst(Node<E> node) {
         // assert lock.isHeldByCurrentThread();
         // 如果当前容量已达最大容量则返回false
+        // 具体如何处理交给上层调用方法
         if (count >= capacity)
             return false;
-        // 获取头节点
+        // 记录旧头节点
         Node<E> f = first;
-        // 添加节点的next执行头结点
+        // 新添加节点的next指向头结点
         node.next = f;
-        // 更新头结点为添加节点
+        // 更新旧头结点为新添加节点
         first = node;
-        // 链表为空，则将last指向刚刚插入的节点
+        // 链表为空，则将last指向插入的新节点
         if (last == null)
             last = node;
-        // 链表不为空，更新旧队列中头结点的prev执行当前插入节点
+        // 链表不为空，将旧头结点的prev执行当前新插入节点
         else
             f.prev = node;
         // 记录元素个数
@@ -257,13 +260,14 @@ public class LinkedBlockingDeque<E>
     private boolean linkLast(Node<E> node) {
         // assert lock.isHeldByCurrentThread();
         // 如果当前容量已达最大容量则返回false
+        // 具体如何处理交给上层调用方法
         if (count >= capacity)
             return false;
-        // 获取尾节点
+        // 记录旧尾节点
         Node<E> l = last;
-        // 将插入节点的prev指向旧链表的尾结点
+        // 将新插入节点的prev指向旧尾结点
         node.prev = l;
-        // 更新尾节点指向新插入的节点
+        // 更新旧尾节点指向新插入的节点
         last = node;
         // 链表为空，则将first指向刚刚插入的节点
         if (first == null)
@@ -288,11 +292,12 @@ public class LinkedBlockingDeque<E>
         // 队列为空，直接返回null
         if (f == null)
             return null;
-        // 获取头结点的下一个节点，为新头结点做准备
+        // 获取头结点的下一个节点，为更新头结点做准备
         Node<E> n = f.next;
-        // 将旧链表中的头结点与链表断开连接
+        // 将旧头结点与链表断开连接
         E item = f.item;
         f.item = null;
+        // 将出队节点的next指向自己
         f.next = f; // help GC
         // 更新头节点
         first = n;
@@ -362,7 +367,8 @@ public class LinkedBlockingDeque<E>
             // 更新x节点前后节点的指针
             p.next = n;
             n.prev = p;
-            // 注意这里并没有去操作x节点删除节点的前后指针，主要是为了方便迭代器继续使用
+            // 注意这里并没有去操作x节点的前后指针，主要是为了方便迭代器继续使用
+            // 如果某个线程刚刚好遍历到删除的节点，当其他线程删除后，还是可以保证继续向后、向前遍历
             x.item = null;
             // Don't mess with x's links.  They may still be in use by
             // an iterator.
