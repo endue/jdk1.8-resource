@@ -155,7 +155,7 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  */
 
 /**
- * 该类内部基于共享锁实现
+ * 该类内部基于AQS共享锁实现
  * 每次初始化时赋值一个数值到锁状态标志位state
  * 之后每次countDown都是走的释放锁逻辑，判断state是否为0，如果为0唤醒AQS队列中的线程
  * 而await走的是获取锁的逻辑，判断state是否为0，如果不为0，则加入AQS队列中
@@ -170,20 +170,20 @@ public class CountDownLatch {
     // 所以需要实现AQS内部获取和释放共享锁的两个方法
     private static final class Sync extends AbstractQueuedSynchronizer {
         private static final long serialVersionUID = 4982264981922014374L;
-        // 设置锁状态标志位的值 = count
+        // 初始化时直接设置锁状态标志位的值 = count
         Sync(int count) {
             setState(count);
         }
-
+        // 获取count的值
         int getCount() {
             return getState();
         }
-        // 获取共享锁
+        // 获取共享锁，在AQS获取共享锁时，调用的该方法
         protected int tryAcquireShared(int acquires) {
             // 如果锁状态标志位为0，返回1表示获取锁成功，-1表示失败
             return (getState() == 0) ? 1 : -1;
         }
-        // 释放共享锁
+        // 释放共享锁，在AQS释放共享锁时，调用的该方法
         protected boolean tryReleaseShared(int releases) {
             // Decrement count; signal when transition to zero
             for (;;) {
@@ -240,8 +240,9 @@ public class CountDownLatch {
      * @throws InterruptedException if the current thread is interrupted
      *         while waiting
      */
-    // 获取锁
-    // 底层获取锁状态标志位，如果state == 1则获取成功，否则获取失败将当前线程阻塞
+    // 获取锁，可中断，底层获取锁状态标志位，获取锁方法调用的是内部类Sync.tryAcquireShared
+    // 如果state == 0则返回1获取锁成功
+    // 如果state != 0则返回-1获取锁失败，需要进入等待队列
     public void await() throws InterruptedException {
         sync.acquireSharedInterruptibly(1);
     }
@@ -287,6 +288,10 @@ public class CountDownLatch {
      * @throws InterruptedException if the current thread is interrupted
      *         while waiting
      */
+    // 获取锁，可中断，带超时时间，底层获取锁状态标志位，获取锁方法调用的是内部类Sync.tryAcquireShared
+    // 如果state == 0则返回1获取锁成功
+    // 如果state != 0则返回-1获取锁失败，需要进入等待队列
+    // 当线程被唤醒后，会判断是否超时，如果超时则返回false
     public boolean await(long timeout, TimeUnit unit)
         throws InterruptedException {
         return sync.tryAcquireSharedNanos(1, unit.toNanos(timeout));
@@ -302,8 +307,9 @@ public class CountDownLatch {
      *
      * <p>If the current count equals zero then nothing happens.
      */
-    // 释放锁
-    // 底层递减锁状态标志位，如果state == 0 ，那么已经完全释放则唤醒等待的线程
+    // 释放锁，底层递减锁状态标志位，释放锁方法调用了内部类Sync.tryReleaseShared
+    // 如果某个线程递减state == 0时,返回true，执行后续的doReleaseShared方法，唤醒
+    // 等待队列中的线程
     public void countDown() {
         sync.releaseShared(1);
     }
