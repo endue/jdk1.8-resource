@@ -89,6 +89,8 @@ import java.util.function.Consumer;
  * @author Martin Buchholz
  * @param <E> the type of elements held in this collection
  */
+// ConcurrentLinkedDueue是一个无界的双端队列，底层是双向链表实现，支持并发操作，依赖于CAS实现
+// 读取和写入依赖两个指针head、tail来完成，支持内部删除但不支持内部插入
 public class ConcurrentLinkedDeque<E>
     extends AbstractCollection<E>
     implements Deque<E>, java.io.Serializable {
@@ -114,10 +116,15 @@ public class ConcurrentLinkedDeque<E>
      *
      * class Node<E> { volatile Node<E> prev, next; volatile E item; }
      *
+     * 如果一个节点是live的，那么它的item不为null
      * A node p is considered "live" if it contains a non-null item
      * (p.item != null).  When an item is CASed to null, the item is
      * atomically logically deleted from the collection.
      *
+     * 任何时候，都有一个first node，它的prev == null用来终止从任何一个live node
+     * 开始的prev链调用操作
+     * 同理，还会存在一个last node节点
+     * first、last node可能是live node 也可能不是，但是他们总是可达的
      * At any time, there is precisely one "first" node with a null
      * prev reference that terminates any chain of prev references
      * starting at a live node.  Similarly there is precisely one
@@ -125,25 +132,34 @@ public class ConcurrentLinkedDeque<E>
      * a live node.  The "first" and "last" nodes may or may not be live.
      * The "first" and "last" nodes are always mutually reachable.
      *
+     * 当一个新node加入到first.prev 或last.next时，它就自动的变成了一个live node
      * A new element is added atomically by CASing the null prev or
      * next reference in the first or last node to a fresh node
      * containing the element.  The element's node atomically becomes
      * "live" at that point.
      *
+     * 如果一个node是active node，那么它是live node或者first/last ndoe
+     * active node是不能被unlinked的
      * A node is considered "active" if it is a live node, or the
      * first or last node.  Active nodes cannot be unlinked.
      *
+     * self-link node是一个prev 或 next指向自己的node，它被用在unlinking操作中,
+     * active node永远不可能有self-links
      * A "self-link" is a next or prev reference that is the same node:
      *   p.prev == p  or  p.next == p
      * Self-links are used in the node unlinking process.  Active nodes
      * never have self-links.
      *
+     * 如果一个节点是active node，那么它符合下面三种情况中的一种
      * A node p is active if and only if:
      *
      * p.item != null ||
      * (p.prev == null && p.next != p) ||
      * (p.next == null && p.prev != p)
      *
+     * 在双端队列中存在两个引用，head和tail,它俩总是近似的是队列中的first node 和last node
+     * first node总是能通过head节点的prev指针找到，tail节点与last node节点道理一样
+     * head/tail节点是有可能引用被删除的节点，这些节点是被unlinked的
      * The deque object has two node references, "head" and "tail".
      * The head and tail are only approximations to the first and last
      * nodes of the deque.  The first node can always be found by
@@ -152,13 +168,17 @@ public class ConcurrentLinkedDeque<E>
      * nodes that have been unlinked and so may not be reachable from
      * any live node.
      *
+     * 删除一个node需要3个阶段
      * There are 3 stages of node deletion;
      * "logical deletion", "unlinking", and "gc-unlinking".
      *
+     * 阶段1. logical deletion，CAS修改node.item = null，是node节点建立被unlinking的条件
      * 1. "logical deletion" by CASing item to null atomically removes
      * the element from the collection, and makes the containing node
      * eligible for unlinking.
      *
+     * 阶段2. unlinking，使那些"logical deletion" node在从任意active node出发都是不可达的，
+     * 从而使GC来回收他，但是通过迭代器来遍历，unlinking node还是可达的
      * 2. "unlinking" makes a deleted node unreachable from active
      * nodes, and thus eventually reclaimable by GC.  Unlinked nodes
      * may remain reachable indefinitely from an iterator.
@@ -172,6 +192,8 @@ public class ConcurrentLinkedDeque<E>
      * nodes that have already been logically deleted - such nodes may
      * be reachable in one direction only.
      *
+     * 阶段3. gc-unlinking"使那些"logical deletion" node真正的被删除，相比
+     * unlinked，这些logical deletion" node此时是无法从head/tail抵达的
      * 3. "gc-unlinking" takes unlinking further by making active
      * nodes unreachable from deleted nodes, making it easier for the
      * GC to reclaim future deleted nodes.  This step makes the data
@@ -349,27 +371,47 @@ public class ConcurrentLinkedDeque<E>
     /**
      * Links e as first element.
      */
+    // 从头位置插入元素,在插入过程中并不关心p.item == null，只要你是first node就插入到你的前面
     private void linkFirst(E e) {
         checkNotNull(e);
         final Node<E> newNode = new Node<E>(e);
-
         restartFromHead:
         for (;;)
+            // h作为一个标记，标记的是循环开始时的head节点
+            // p也指向head，后续依赖q节点，然后p = q,q = p.prev操作来向前遍历，直到找到最新的头结点
             for (Node<E> h = head, p = h, q;;) {
+                // 1.q指向当前p.prev
+                //  1.1 如果q == null，继续向下执行，不执行后续判断以及不进入if条件
+                //  1.2 如果q != null，说明p有前驱节点，然后向前遍历，p = q,q = p.prev，如果此时q还不为null
+                //      1.2.1 h != (h = head)返回false，说明当前head就是最新的head，无需修改，继续执行p = q,q = p.prev流程即可
+                //      1.2.2 h != (h = head)返回true，说明在遍历过程中head节点被修改了，更新h为最新的head，并且p指向h,从最新的head开始向前遍历
                 if ((q = p.prev) != null &&
                     (q = (p = q).prev) != null)
                     // Check for head updates every other hop.
                     // If p == q, we are sure to follow head instead.
                     p = (h != (h = head)) ? h : q;
+                // p节点被删除了
                 else if (p.next == p) // PREV_TERMINATOR
                     continue restartFromHead;
                 else {
                     // p is first node
+                    // 执行到这里时，p已经是头结点了，分为如下三种情况：
+                    // 1.(q = p.prev) != null 返回false，短路后面的操作不会执行，此时说明p没有任何前驱节点，也就是q为null，p就是头节点
+                    // 2.(q = p.prev) != null 返回true，执行后面的(q = (p = q).prev) != null 返回false，p有前驱节点就是q，但是此时q没有前驱节点，
+                    // 然后将p = q，q = p.prev，也就是继续前进了一下，如果p就成了头结点
+                    // 3.(q = p.prev) != null 返回true && q = (p = q).prev) != null 返回true，说明在p、q各前进一步后，q前面还有前驱节点，此时需要找到头结点，
+                    // 根据开始遍历时记录的h节点与head比较是否一致来判断，
+                    // 如果一致，说明head节点没发生变更p指向最新的q即可(此时的head节点和最前面的真正头结点中间查了一个节点)
+                    // 如果不一致，说明head节点发生了变更那么将h指向最新的head节点，此时 p = h = head
                     newNode.lazySetNext(p); // CAS piggyback
+                    // 如果这里执行失败，说明p节点被其他线程设置了前驱，此时需要继续往前遍历
                     if (p.casPrev(null, newNode)) {
                         // Successful CAS is the linearization point
                         // for e to become an element of this deque,
                         // and for newNode to become "live".
+                        // 如果当前显示设置newNode到队列中，那么判断一下head节点是否需要更新
+                        // p != h == ture，说明在执行过程中，刚开始的p = h = head发送了变化，也就是在查找头结点过程中
+                        // p节点进去了前移操作，此时设置head为newNode
                         if (p != h) // hop two nodes at a time
                             casHead(h, newNode);  // Failure is OK.
                         return;
@@ -417,19 +459,23 @@ public class ConcurrentLinkedDeque<E>
     /**
      * Unlinks non-null node x.
      */
+    // x节点是要断开的节点，此时的x.item == null
     void unlink(Node<E> x) {
         // assert x != null;
         // assert x.item == null;
         // assert x != PREV_TERMINATOR;
         // assert x != NEXT_TERMINATOR;
-
+        // 获取待删除节点x的前驱和后继
         final Node<E> prev = x.prev;
         final Node<E> next = x.next;
         if (prev == null) {
+            // 待删除节点是first node
             unlinkFirst(x, next);
         } else if (next == null) {
+            // 待删除节点是last node
             unlinkLast(x, prev);
         } else {
+            // 待删除元素既不是first node 也不是last node，也就是x元素的prev、next都不为null
             // Unlink interior node.
             //
             // This is the common case, since a series of polls at the
@@ -449,60 +495,94 @@ public class ConcurrentLinkedDeque<E>
             // unchanged and ensuring that x is not reachable from
             // tail/head, before setting x's prev/next links to their
             // logical approximate replacements, self/TERMINATOR.
-            Node<E> activePred, activeSucc;
+            Node<E> activePred, // 标记x前驱中第一个live node，可能标记为x自己(x是first node)
+                    activeSucc;// 标记x后继中第一个live node，可能标记为x自己(x是last node)
             boolean isFirst, isLast;
             int hops = 1;
 
             // Find active predecessor
+            // 查找参数x节点前驱中第一个live node
             for (Node<E> p = prev; ; ++hops) {
+                // 如果是item != null,那么p是个有效节点
+                // 此时标记出来即可，退出当前for循环
                 if (p.item != null) {
                     activePred = p;
+                    // 标记x前驱中是否找到了第一个live node
                     isFirst = false;
                     break;
                 }
+                /* 执行到这里说明 p.item == null*/
+                // 需要继续向前移动
                 Node<E> q = p.prev;
+               // 如果q为null，那么p可能是一个first node或PREV_TERMINATOR
                 if (q == null) {
+                    // p节点是PREV_TERMINATOR类型，直接退出，无需再向前移动查询,参数x节点已经被删除了
                     if (p.next == p)
                         return;
+                    // 否则p是first node,那么标记一下
                     activePred = p;
                     isFirst = true;
                     break;
                 }
+                // q = p.prev，当p == q时，说明p是NEXT_TERMINATOR类型，也就是参数x节点已经被删除了
                 else if (p == q)
                     return;
+                // 向左移动
                 else
                     p = q;
             }
 
             // Find active successor
+            // 查找参数x节点后继中第一个live node或last node
             for (Node<E> p = next; ; ++hops) {
+                // 找到了第一个live node
                 if (p.item != null) {
                     activeSucc = p;
                     isLast = false;
                     break;
                 }
                 Node<E> q = p.next;
+                // p可能是last node 或NEXT_TERMINATOR
                 if (q == null) {
+                    // p节点是NEXT_TERMINATOR类型，直接退出，参数x节点已经被删除了
                     if (p.prev == p)
                         return;
+                    // 否则p是last node,那么标记一下
                     activeSucc = p;
                     isLast = true;
                     break;
                 }
+                // q = p.next，当p == q时，说明p是PREV_TERMINATOR类型,直接退出，参数x节点已经被删除了
                 else if (p == q)
                     return;
+                // 向后移动
                 else
                     p = q;
             }
 
             // TODO: better HOP heuristics
+            // hops < HOPS上面两个for循环都没执行第二次
+            // 查找前驱for循环
+            //  1.p.item != null,p是live node，此时isFirst = false
+            //  2.q == null,p是first node，此时isFirst = true
+            // 查找后继for循环
+            //  1.p.item != null,p是live node，此时isLast = false
+            //  2.q == null,p是last node，此时isFirst = true
+            // 上述共 2 * 2 = 4中情况组合
             if (hops < HOPS
                 // always squeeze out interior deleted nodes
                 && (isFirst | isLast))
+                // 执行到这里说明参数x要么是first node，要么是last node
                 return;
+
+            /* 执行到这里三种情况*/
+            // 1.说明参数x既不是last node也不是first node
+            // 2.x是last node，在查找前驱中第一个live node时，中间有大量的logical deletion node
+            // 3.x是first node，在查找后继中第一个live node时，中间有大量的logical deletion node
 
             // Squeeze out deleted nodes between activePred and
             // activeSucc, including x.
+            // 清理
             skipDeletedSuccessors(activePred);
             skipDeletedPredecessors(activeSucc);
 
@@ -527,32 +607,73 @@ public class ConcurrentLinkedDeque<E>
 
     /**
      * Unlinks non-null first node.
+     * @param first 当前要删除的节点
+     * @param next first节点的后继节点
      */
+    // 此方法时找到删除节点first的第一个live node或last node
     private void unlinkFirst(Node<E> first, Node<E> next) {
         // assert first != null;
         // assert next != null;
         // assert first.item == null;
+        // 从当前first节点的后继节点next开始向后遍历
+        // p记录next，从p开始向后遍历
         for (Node<E> o = null, p = next, q;;) {
+            // if条件是在从x.next开始找第一个active node(包括live node)
+            // 1. p.item != null成立，p是live node，进入if分支
+            // 2.p.item != null不成立 || (q = p.next) == null成立，p不是live，是个active node(此时的p是个last node)，进入if分支
+            // 3.p.item != null不成立 || (q = p.next) == null不成立，p有后继节点(此时的q已经指向p.next)那么需要继续后移，不能进入if分支
             if (p.item != null || (q = p.next) == null) {
+                // 指向到这里，说明找了first的有效后继节点p(此时的p是一个active node)
+
+                // 1.o != null成立，p此时肯定不等于next，也就是p相比遍历开始时向后移动了(此时的o.item == null)
+                //   o != null不成立，p节点也就是next是active node,直接return(此时的first节点只进行到删除的第一步)
+                // 2.p.prev != p成立，说明p不是一个NEXT_TERMINATOR
+                //   p.prev != p不成立，说明p是一个NEXT_TERMINATOR，直接return(此时的first节点只进行到删除的第一步)
+                // 3.CAS修改first.next = p成立，进入if分支
+                //   CAS修改first.next = p不成立，有其他线程操作了，直接return(此时的first节点只进行到删除的第一步)
+                //       ->  ->  ->  ->
+                // first   A   B   C    P
+                //      <-  <-  <-   <-
+                // if条件都满足后结果如下，first.next = p
+                //      -------------->
+                //           ->  ->  ->
+                // first   A   B   C    P
+                //      <-  <-  <-   <-
                 if (o != null && p.prev != p && first.casNext(next, p)) {
+                    // 与if中的first.casNext(next, p)操作是相对的，此时需要设置p.prev = first node 或 live node
+                    // 如果在这过程中first前面插入了节点X，那么p.prev = X,否则p.prev = first
+                    // 如果在这过程中p被删除了，则什么操作也不做
+                    // 删除操作第二步
                     skipDeletedPredecessors(p);
+
+                    // 下面if添加必须同时符合下列三种情况才执行里面的代码
+                    // 1.first在遍历过程中没有发送变化，一直就是first node
+                    // 2.p是last node或live node
+                    // 3.p的前驱节点是first node
                     if (first.prev == null &&
                         (p.next == null || p.item != null) &&
                         p.prev == first) {
-
+                        // 修改head指向first node
                         updateHead(); // Ensure o is not reachable from head
+                        // 修改last指向last node
                         updateTail(); // Ensure o is not reachable from tail
 
-                        // Finally, actually gc-unlink
+                        // 删除节点第三步，"gc-unlink"
+                        // 执行到这里，上面的C节点会被设置成如下
+                        // o.next = o，o.prev = PREV_TERMINATOR
                         o.lazySetNext(o);
                         o.lazySetPrev(prevTerminator());
                     }
                 }
                 return;
             }
+            // p.next = p,p是一个PREV_TERMINATOR类型节点
+            // 退出循环，往后没得遍历了
             else if (p == q)
                 return;
+            // 继续向后遍历
             else {
+                // o -> p -> q
                 o = p;
                 p = q;
             }
@@ -599,24 +720,36 @@ public class ConcurrentLinkedDeque<E>
      * Does not guarantee to eliminate slack, only that head will
      * point to a node that was active while this method was running.
      */
+    // 修改head指向first node
     private final void updateHead() {
         // Either head already points to an active node, or we keep
         // trying to cas it to the first node until it does.
         Node<E> h, p, q;
         restartFromHead:
+        // 同时满足如下两个情况，进入while循环
+        // 1.当前head不是live node
+        // 2.当前head.prev不是null
+        // 注意这时候h记录了旧head，p记录了旧head的prev节点
         while ((h = head).item == null && (p = h.prev) != null) {
             for (;;) {
+                // 1.(q = p.prev) == null成立，说明p此时是first node，进入if
+                // 2.(q = p.prev) == null不成立，(q = (p = q).prev) == null成立，说明q是first node(注意p = q操作)，进入if
+                // 3.(q = p.prev) == null不成立，(q = (p = q).prev) == null不成立，也就是此时的q还有前驱，继续向前遍历
                 if ((q = p.prev) == null ||
                     (q = (p = q).prev) == null) {
                     // It is possible that p is PREV_TERMINATOR,
                     // but if so, the CAS is guaranteed to fail.
+                    // 更新head为first node
                     if (casHead(h, p))
                         return;
+                    // 更新失败，重新获取head
                     else
                         continue restartFromHead;
                 }
+                // head被更新了，重新获取head
                 else if (h != head)
                     continue restartFromHead;
+                // 向前遍历
                 else
                     p = q;
             }
@@ -629,58 +762,93 @@ public class ConcurrentLinkedDeque<E>
      * Does not guarantee to eliminate slack, only that tail will
      * point to a node that was active while this method was running.
      */
+    // 修改tail指向last node
     private final void updateTail() {
         // Either tail already points to an active node, or we keep
         // trying to cas it to the last node until it does.
         Node<E> t, p, q;
         restartFromTail:
+        // 同时满足如下两个情况，进入while循环
+        // 1.当前tail不是live node
+        // 2.当前tail.next不是null
+        // 注意这时候t记录了旧tail，p记录了旧tail的next节点
         while ((t = tail).item == null && (p = t.next) != null) {
             for (;;) {
+                // 1.(q = p.next) == null成立，说明p此时是last node，进入if
+                // 2.(q = p.next) == null不成立，(q = (p = q).next) == null成立，说明q是last node(注意p = q操作)，进入if
+                // 3.(q = p.next) == null不成立，(q = (p = q).next) == null不成立，也就是此时的q还有后继，继续向后遍历
                 if ((q = p.next) == null ||
                     (q = (p = q).next) == null) {
                     // It is possible that p is NEXT_TERMINATOR,
                     // but if so, the CAS is guaranteed to fail.
+                    // 更新tail为last node
                     if (casTail(t, p))
                         return;
+                        // 更新失败，重新获取tail
                     else
                         continue restartFromTail;
                 }
+                // tail被更新了，重新获取tail
                 else if (t != tail)
                     continue restartFromTail;
+                // 向后遍历
                 else
                     p = q;
             }
         }
     }
 
+    // 找到x节点前驱中的第一个live node或first node，然后连接它和x
     private void skipDeletedPredecessors(Node<E> x) {
         whileActive:
         do {
+            // prev记录x的第一个前驱节点
             Node<E> prev = x.prev;
             // assert prev != null;
             // assert x != NEXT_TERMINATOR;
             // assert x != PREV_TERMINATOR;
+            // 操作p向前遍历
             Node<E> p = prev;
             findActive:
             for (;;) {
+                // 如果p是live node，退出for循环，执行下面的if操作
                 if (p.item != null)
                     break findActive;
+                // 执行到这里说明 p.item == null，也就是p当前处于删除的第一步，p需要被删除，跳过p
+                ///获取p的prev，继续向前
                 Node<E> q = p.prev;
+                // 如果q为null，那么p可能是一个first node或PREV_TERMINATOR
                 if (q == null) {
+                    // p是一个PREV_TERMINATOR节点
+                    // 那么需要重新获取x.prev节点，从头开始查找x前驱中的第一个live node或first node
                     if (p.next == p)
                         continue whileActive;
+                    // p此时是firstNode，已经到达队列的头部，退出for循环，执行下面的if操作
                     break findActive;
                 }
+                // 因为q = p.prev ,而这里p == q,说明p是一个NEXT_TERMINATOR
+                // 那么需要重新获取x.prev节点，从头开始查找x前驱中的第一个live node或first node
                 else if (p == q)
                     continue whileActive;
+                // 继续向前遍历查找
                 else
                     p = q;
             }
 
             // found active CAS target
+            // 1.prev == p成立，说明根本没有向前查找，也就是x.prev就是一个live node 或 first node,此时根本没必要更新x的前驱节点，无需再运行直接返回即可
+            // 2.prev == p不成立 || x.casPrev(prev, p)成立，说明向前查找到了live node 或 first node，并且cas修改成功，此时如下所示，无需再运行直接返回即可
+            //      ---------------->
+            //           ->  ->  ->
+            // first   A   B   C    P
+            //      <-  <-  <-
+            //      <---------------
+            // 3.prev == p不成立 || x.casPrev(prev, p)不成立，说明向前查找了并且找了live node 或 first node,但是在cas的时候失败了,
+            //   此时判断x的状态，如果被删除了并且不是last node，那么不需要与first node 或 live node建立连接，后续会被其他线程清理掉
             if (prev == p || x.casPrev(prev, p))
                 return;
 
+        // 如果x是live node 或last ndoe，那么重新计算x的有效前驱(live node 或 first node)
         } while (x.item != null || x.next == null);
     }
 
@@ -720,9 +888,13 @@ public class ConcurrentLinkedDeque<E>
      * linked to self, which will only be true if traversing with a
      * stale pointer that is now off the list.
      */
+    // 获取p节点的后继节点
     final Node<E> succ(Node<E> p) {
         // TODO: should we skip deleted nodes here?
         Node<E> q = p.next;
+        // p == q 也就是 p = p.next
+        // 1.成立，说明p节点被解除了连接，那么无论如何调用p.next依旧都是自己，所以需要重新查找first node
+        // 2.不成立，返回p的后继节点q即可
         return (p == q) ? first() : q;
     }
 
@@ -742,20 +914,34 @@ public class ConcurrentLinkedDeque<E>
      * The returned node may or may not be logically deleted.
      * Guarantees that head is set to the returned node.
      */
+    // 查找真正的first node
     Node<E> first() {
         restartFromHead:
         for (;;)
+            // h用来记录遍历时的head节点，定义p = h = head，此时的head节点不一定是真正的first node
             for (Node<E> h = head, p = h, q;;) {
+                // 这里if操作就是在不断的查找真正的first node
+                // 1.q = p.preve != null不成立，说明head是真正的first node，无需向前遍历
+                // 2.q = p.preve != null成立 && q = (p = q).prev) != null 不成立，说明当前p是真正的first node，也无需向前遍历
+                // 3.q = p.preve != null成立 && q = (p = q).prev) != null 成立，说明当前p不是真正的first node，需要向前遍历
+                //   3.1 h != (h = head)成立，说明旧head != 新head，也就是head在遍历过程中发生了变更，此时h指向新head，p也指向新head即可，类似for循环刚刚开始
+                //   3.2 h != (h = head)不成立，说明旧head == 新head，head遍历过程中没有发送变更并且旧head还不是真正的first node，此时继续前移p = q即可
                 if ((q = p.prev) != null &&
                     (q = (p = q).prev) != null)
                     // Check for head updates every other hop.
                     // If p == q, we are sure to follow head instead.
                     p = (h != (h = head)) ? h : q;
+                // 1.p == head，分两种情况
+                //   1.1 head自始至终没发生变化，一开始遍历的时候head就是真正的first node
+                //   1.2 head自始至终没发生变化，一开始遍历的时候head不是真正的first node，针对3.2的情况
+                // 2. p != head，说明head在遍历过程中发送了变更，此时p是first node，更新head为first node,针对3.1的情况
                 else if (p == h
                          // It is possible that p is PREV_TERMINATOR,
                          // but if so, the CAS is guaranteed to fail.
                          || casHead(h, p))
                     return p;
+                // 执行casHead失败，考虑应该不会有其他情况进入这里
+                // 此时需要重新获取head进行查找真正的first node
                 else
                     continue restartFromHead;
             }
@@ -852,6 +1038,7 @@ public class ConcurrentLinkedDeque<E>
             if (h == null)
                 h = t = newNode;
             else {
+                // 这里采用的是从队尾插入元素
                 t.lazySetNext(newNode);
                 newNode.lazySetPrev(t);
                 t = newNode;
@@ -962,9 +1149,15 @@ public class ConcurrentLinkedDeque<E>
     }
 
     public E pollFirst() {
+        // 先获取队列中的first node，重新获取p的后继节点分如下两种情况
+        // 1.p不是一个active node
+        // 2.cas修改p.item = null失败,也就是p被删除了
         for (Node<E> p = first(); p != null; p = succ(p)) {
             E item = p.item;
+            // 1.p节点是一个active node
+            // 2.cas修改p.item = null（删除节点的第一步）
             if (item != null && p.casItem(item, null)) {
+                // 断开p的连接（（删除节点的第二、三步））
                 unlink(p);
                 return item;
             }

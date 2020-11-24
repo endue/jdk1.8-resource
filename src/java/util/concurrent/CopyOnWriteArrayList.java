@@ -399,6 +399,7 @@ public class CopyOnWriteArrayList<E>
      * @throws IndexOutOfBoundsException {@inheritDoc}
      */
     public E get(int index) {
+        // 参数getArray()获取当前的array
         return get(getArray(), index);
     }
 
@@ -409,17 +410,25 @@ public class CopyOnWriteArrayList<E>
      * @throws IndexOutOfBoundsException {@inheritDoc}
      */
     public E set(int index, E element) {
+        // 获取锁并加锁
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 加锁成功后获取当前的array
             Object[] elements = getArray();
+            // 获取参数index位置的旧元素
             E oldValue = get(elements, index);
-
+            // 如果旧元素 != 新元素
             if (oldValue != element) {
+                // 获取旧数组长度
                 int len = elements.length;
+                // 拷贝旧数据到新数组
                 Object[] newElements = Arrays.copyOf(elements, len);
+                // 设置index位置为新元素
                 newElements[index] = element;
+                // 更新数组
                 setArray(newElements);
+            // 如果旧元素 == 新元素
             } else {
                 // Not quite a no-op; ensures volatile write semantics
                 setArray(elements);
@@ -440,13 +449,19 @@ public class CopyOnWriteArrayList<E>
     // 创建一个新数组，长度 = 原长度 + 1
     // 复制数据，然后修改array引用
     public boolean add(E e) {
+        // 获取锁并加锁
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 加锁成功后获取当前的array
             Object[] elements = getArray();
+            // 获取array长度
             int len = elements.length;
+            // 创建一个新数组长度是旧长度 + 1
             Object[] newElements = Arrays.copyOf(elements, len + 1);
+            // 赋值新元素到len的位置(此时len = 旧len + 1)
             newElements[len] = e;
+            // 更新array
             setArray(newElements);
             return true;
         } finally {
@@ -495,20 +510,32 @@ public class CopyOnWriteArrayList<E>
      * @throws IndexOutOfBoundsException {@inheritDoc}
      */
     public E remove(int index) {
+        // 获取锁并加锁
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 加锁成功后获取当前的array
             Object[] elements = getArray();
+            // 获取旧数组长度
             int len = elements.length;
+            // 获取指定位置的旧元素
             E oldValue = get(elements, index);
+            // 计算要移动元素的个数
             int numMoved = len - index - 1;
+            // 如果为0，说明删除的是尾结点
+            // 此时只需要复制len - 1个元素即可
             if (numMoved == 0)
                 setArray(Arrays.copyOf(elements, len - 1));
+            // 如果不为0，说明删除的是非尾结点
             else {
+                // 获取一个新数组，长度 - 1
                 Object[] newElements = new Object[len - 1];
+                // 从下标0开始复制，复制index个元素到新数组
                 System.arraycopy(elements, 0, newElements, 0, index);
+                // 从下标 index + 1开始复制，复制numMoved个元素到新数组
                 System.arraycopy(elements, index + 1, newElements, index,
                                  numMoved);
+                // 更新数组
                 setArray(newElements);
             }
             return oldValue;
