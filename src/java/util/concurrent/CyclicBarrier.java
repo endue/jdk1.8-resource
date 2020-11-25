@@ -228,19 +228,22 @@ public class CyclicBarrier {
             if (g.broken)
                 throw new BrokenBarrierException();
             // 如果当前线程中断，那就没必要让同代中等待队列中的线程继续等待
-            // 直接将当前代的broken设置为true,唤醒等待队列中的线程
+            // 直接将当前代的broken设置为true,唤醒等待队列中的线程,此时其他
+            // 线程进来会被前面的if (g.broken)拦截
             if (Thread.interrupted()) {
                 breakBarrier();
                 throw new InterruptedException();
             }
             // 当前线程不符合上述条件，执行到这里将count减1
             // 如果当前count为0，说明已经达到了需要等待运行线程的数量
-            // 那么执行if操作
+            // 那么执行if操作，否则跳过if操作，继续执行下面的逻辑
             int index = --count;
             if (index == 0) {  // tripped
                 boolean ranAction = false;
                 try {
                     // 如果barrierCommand不为null，执行barrierCommand
+                    // 这里可以看出执行barrierCommand的是同代中最后一个
+                    // 抵达的线程
                     final Runnable command = barrierCommand;
                     if (command != null)
                         command.run();
@@ -262,16 +265,15 @@ public class CyclicBarrier {
             // 如果count递减后不为0，也就是没有到达执行数量的线程，则执行这里
             for (;;) {
                 try {
-                    // 通过是否设置了等待超时时间
-                    // 调用不同的方法将当前线程加入到等待队列并阻塞
+                    // 通过是否设置了等待超时时间，调用不同的方法将当前线程加入到等待队列并阻塞
                     if (!timed)
                         trip.await();
                     else if (nanos > 0L)
                         nanos = trip.awaitNanos(nanos);
                 } catch (InterruptedException ie) {
-                    // 当线程唤醒前被中断后走这里
-
-                    // 当前线程所处的代正是当前的代 并且 没有被 broken，那么执行breakBarrier方法 之后再抛异常
+                    // 当线程唤醒前被中断走这里
+                    // 当前线程所处的代正是当前的代 并且没有被broken，那么执行breakBarrier标记当前代被broken，
+                    // 然后唤醒其他等待的线程，之后再抛异常
                     if (g == generation && ! g.broken) {
                         breakBarrier();
                         throw ie;
@@ -285,11 +287,11 @@ public class CyclicBarrier {
                     }
                 }
                 // 当前线程走到这里说明阻塞后被唤醒，等待过程中没有被中断
-                // 1.如果被同代中其他线程设置了broken = true 则抛异常
-                //      1.1 同代其他线程唤醒前被中断
-                //      1.2 同代其他线程执行barrierCommand抛异常
-                //      1.3 同代其他线程在执行await方法只被中断了
-                //      1.4 任意线程执行了reset方法
+                // 1.如果被同代中其他线程设置了broken = true 则抛异常，如下情况：
+                //   1.1 同代其他线程唤醒前被中断
+                //   1.2 同代其他线程执行barrierCommand抛异常
+                //   1.3 同代其他线程在执行await方法只被中断了
+                //   1.4 任意线程执行了reset方法
                 if (g.broken)
                     throw new BrokenBarrierException();
                 // 2. 当前线程所处的代，不是目前的代。generation已被更新
