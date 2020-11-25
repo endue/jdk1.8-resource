@@ -111,6 +111,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * The comparator, or null if priority queue uses elements'
      * natural ordering.
      */
+    // 比较器
     private final Comparator<? super E> comparator;
 
     /**
@@ -274,30 +275,12 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     private void initElementsFromCollection(Collection<? extends E> c) {
         Object[] a = c.toArray();
         // If c.toArray incorrectly doesn't return Object[], copy it.
+        // 将Collection转换为一个数组
         if (a.getClass() != Object[].class)
-            // c集合里保存的如果不是Object类型，则需要处理，防止bug
-            // 假设定义类Animals、 Dog类，Dog extends Animals,执行如下代码，①、②行会报错
-            // Dog[] dogs = new Dog[]{new Dog(), new Dog()};
-            // System.out.println(dogs.getClass());// class [Lcom.simon.entity.Dog;
-            // Animals[] animals = dogs;
-            // System.out.println(animals.getClass());// class [Lcom.simon.entity.Dog;
-            // ①
-            // animals[0] = new Animals();// 运行抛异常
-            // ②
-            // Object[] objects = dogs;
-            // objects[0] = new Animals();// 运行抛异常
-            // ③
-            // objects[0] = new Object();// 运行抛异常
-            // ①animals集合里保存的是Dog类型，而代码animals[0] = new Animals() 出现了向下转型：new的父对象强转为子对象
-            // ②objects集合里保存的是Dog类型，而代码objects[0] = new Animals() 出现了向下转型
-            // ③objects集合里保存的是Dog类型，而代码objects[0] = new Object() 出现了向下转型
-            // 也就是如果存在一个Object数组，我们并不一定能将Object对象存进去，这要取决于Object数组中实际的对象类型
-            // 执行如下代码就可以保证数组可以存入任意Object类型了
-            // Object[] objs = Arrays.copyOf(objects, objects.length, Object[].class);
-            // objs[0] = new Object();// 运行不抛异常
             a = Arrays.copyOf(a, a.length, Object[].class);
         int len = a.length;
-        // todo 为什么这种情况下才判断集合元素是否为null？
+        // 1.this.comparator != null也需要比较null的元素
+        // 2.如果c的len为1，heapify()不会执行,为了后续比较不报错
         if (len == 1 || this.comparator != null)
             for (int i = 0; i < len; i++)
                 if (a[i] == null)
