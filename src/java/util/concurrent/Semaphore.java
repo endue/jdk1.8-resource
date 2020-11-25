@@ -153,10 +153,9 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  * @since 1.5
  * @author Doug Lea
  */
-// Semaphore底层依赖于AQS的公平和非公平锁
-// 默认初始化许可证数量(permits)就是AQS内部state的值
-// 之后线程调用acquire相关方法获取许可证数量(也就是减少state的值)，如果state的值不满足线程获取的数量，则将线程阻塞
-// 当线程调用release相关方法就是释放许可证数量(也就是增加state的值)
+// Semaphore底层依赖于AQS公平锁或非公平锁来实现，默认初始化许可证数量(permits)就是AQS内部state的值，
+// 线程调用acquire相关方法获取许可证数量，就是减少state的值，如果state的值不满足线程获取的数量，
+// 则将当前线程阻塞，当线程调用release相关方法就是释放许可证数量，也就是增加state的值
 public class Semaphore implements java.io.Serializable {
     private static final long serialVersionUID = -3222578661600680210L;
     /** All mechanics via AbstractQueuedSynchronizer subclass */
@@ -185,9 +184,10 @@ public class Semaphore implements java.io.Serializable {
                 int available = getState();
                 // 计算当前线程获取许可证后剩余的许可证数
                 int remaining = available - acquires;
-                // 下面两种情况直接返回剩余许可证数
-                // 1.当前许可证不满足当前线程的需求(并没更新state的值) ，返回remaining 阻塞当前线程
-                // 2.当前许可证满足当前线程 并且 cas更新许可证剩余数量成功(也就是获取到许可证)，
+                // 下面两种情况执行 return remaining
+                // 1.remaining < 0许可证数量不满足当前线程需求(并没更新state的值) ，返回remaining阻塞当前线程
+                // 2.remaining >= 0许可证数量满足当前线程 && CAS更新许可证剩余数量成功，返回remaining不阻塞当前线程
+                // 3.remaining >= 0 && CAS操作失败，执行最外层for循环
                 // 返回剩余remaining 由于剩余remaining >=0 所以不会阻塞当前线程
                 if (remaining < 0 ||
                     compareAndSetState(available, remaining))
@@ -198,6 +198,9 @@ public class Semaphore implements java.io.Serializable {
         // 释放许可证
         protected final boolean tryReleaseShared(int releases) {
             for (;;) {
+                // 获取当前许可证数量，加上释放的数量
+                // 如果超过最大值则报错
+                // 否则CAS修改state
                 int current = getState();
                 int next = current + releases;
                 if (next < current) // overflow
@@ -218,7 +221,7 @@ public class Semaphore implements java.io.Serializable {
             }
         }
 
-        // 丢掉当前剩余的许可证 并 返回当前丢掉前的许可证数量
+        // 丢掉当前剩余的许可证并返回当前丢掉前的许可证数量
         final int drainPermits() {
             for (;;) {
                 int current = getState();
@@ -237,7 +240,7 @@ public class Semaphore implements java.io.Serializable {
         NonfairSync(int permits) {
             super(permits);
         }
-
+        // 获取锁
         protected int tryAcquireShared(int acquires) {
             return nonfairTryAcquireShared(acquires);
         }
@@ -253,6 +256,7 @@ public class Semaphore implements java.io.Serializable {
             super(permits);
         }
 
+        // 获取锁
         protected int tryAcquireShared(int acquires) {
             for (;;) {
                 // 同非公平锁一样，但是多了一个hasQueuedPredecessors方法判断
