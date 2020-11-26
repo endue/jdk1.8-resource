@@ -279,8 +279,12 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         if (a.getClass() != Object[].class)
             a = Arrays.copyOf(a, a.length, Object[].class);
         int len = a.length;
-        // 1.this.comparator != null也需要比较null的元素
-        // 2.如果c的len为1，heapify()不会执行,为了后续比较不报错
+        // c支持比较，Comparable不为null，那么comparator为null
+        // c支持比较，Comparable为null，那么comparator不为null
+        // c不支持比较
+        // 1.this.comparator != null也需要比较null的元素，因为实现comparator接口可以改为允许null
+        // 2.如果c的len为1，heapify不会执行,导致后续入数据会报错
+        // 其他情况交给heapify操作
         if (len == 1 || this.comparator != null)
             for (int i = 0; i < len; i++)
                 if (a[i] == null)
@@ -363,16 +367,17 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         if (e == null)
             throw new NullPointerException();
         modCount++;
-        // 获取数据要插入的位置
+        // 插入的位置，size从0开始计算
         int i = size;
-        // 长度不够扩容
+        // 超出了，则扩容，每次容量+1
         if (i >= queue.length)
             grow(i + 1);
+        // 更新size
         size = i + 1;
-        // 原queue为null，直接将元素放到queue[0]
+        // 插入位置为0，直接将元素放到queue[0]
         if (i == 0)
             queue[0] = e;
-        // 原queue已初始化，基于放的位置i和元素e进行上移
+        // 插入位置不为0，基于放的位置i和元素e进行上浮
         else
             siftUp(i, e);
         return true;
@@ -619,13 +624,21 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     public E poll() {
         if (size == 0)
             return null;
+        // 获取数组尾元素的位置
         int s = --size;
         modCount++;
+        // 获取数组头元素
         E result = (E) queue[0];
+        // 获取数组尾元素
         E x = (E) queue[s];
+        // 清空尾元素
         queue[s] = null;
+        // 为元素作为插入元素，插入到头元素的位置0
+        // 头元素出队后数组还有其他元素
         if (s != 0)
+            // 插入为元素到位置0，执行下沉操作
             siftDown(0, x);
+        // 头元素出队
         return result;
     }
 
@@ -673,7 +686,8 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * @param k the position to fill
      * @param x the item to insert
      */
-    // 上移: 将元素x插入k的位置时，可能会发生上移操作
+    // 上浮: 将元素x插入k的位置时，可能会发生上浮操作
+    // 位置k是数组最后一个元素所在位置的下一个位置
     private void siftUp(int k, E x) {
         if (comparator != null)
             siftUpUsingComparator(k, x);
@@ -687,18 +701,18 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         while (k > 0) {
             // 获取插入位置k的父节点的位置
             int parent = (k - 1) >>> 1;
-            // 获取父节点的值
+            // 获取x的父节点的值
             Object e = queue[parent];
-            // 如果当前节点的值比父节点大,也就是当前节点的优先级小，则跳出循环，将当前接的放入该位置即可
+            // 如果x的值比父节点大,则跳出循环，将x插入位置k即可
             if (key.compareTo((E) e) >= 0)
                 break;
-            // 如果当前节点的值比父节点小，也就是当前接的优先级大，说明它应该排父节点上面，父节点下移
-            // 将父节点放到当前节点的位置
+            // 如果x的值比父节点小，说明x的父节点应该下沉，xx应该上浮
+            // 所以将x的父节点插入到x要插入的位置，x插入位置改为父节点之前的位置
+            // 继续while循环
             queue[k] = e;
-            // 然后把当前节点要放入的位置改为父节点的位置，继续while循环，直到当前节点优先级小于某个节点
-            // 此时将当前节点放到k位置即可
             k = parent;
         }
+        // 找到x要插入的位置k了
         queue[k] = key;
     }
 
@@ -721,10 +735,10 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * demoting x down the tree repeatedly until it is less than or
      * equal to its children or is a leaf.
      *
-     * @param k the position to fill 元素的位置
+     * @param k the position to fill 元素的索引位置
      * @param x the item to insert 插入的元素
      */
-    // 下移  将元素x插入k的位置时，可能会发生下移操作
+    // 下沉  将元素x插入k的位置时，可能会发生下沉操作
     private void siftDown(int k, E x) {
         // comparator不为空用comparator，如果comparator用元素x自带的比较器所以元素要实现Comparable接口
         if (comparator != null)
@@ -736,27 +750,33 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     @SuppressWarnings("unchecked")
     private void siftDownComparable(int k, E x) {
         Comparable<? super E> key = (Comparable<? super E>)x;
+        // half指向第一个叶子节点
+        // 当到达half时就没必要继续下沉了，因为没得下沉操作可执行
         int half = size >>> 1;        // loop while a non-leaf
         while (k < half) {
-            // 获取插入位置的左子节点的位置
+            // 获取插入位置左子节点的位置
             int child = (k << 1) + 1; // assume left child is least
             // 获取插入位置的左子节点的值
             Object c = queue[child];
-            // 获取插入位置的右子节点的位置
+            // 获取插入位置右子节点的位置
             int right = child + 1;
-            // 保证右子节点小于size，否则超出数组下标了，比较左子节点和右子节点的大小
-            // 也就是获取插入位置左右子节点中值最小但是优先级最高的节点
+            // right < size表示当前插入位置有右子节点 && 如果左子节点比右子节点的值大
+            // 其实就是在比较左子节点和右子节点，记录当中最小的值到c，并记录最小值的位置到child
             if (right < size &&
                 ((Comparable<? super E>) c).compareTo((E) queue[right]) > 0)
+                // 只需到这里说明右子节点最小，那么记录到c，位置记录到child
                 c = queue[child = right];
-            // 如果插入元素的值 <= 左右子节点中优先级最大的节点的值，那么将插入元素放入该位置即可
+            // 如果插入元素的值 <= 左右子节点中最小的值，那么说明插入元素最小
+            // 只需将插入元素放入插入位置即可，退出循环
             if (key.compareTo((E) c) <= 0)
                 break;
-            // 如果插入元素的值 > 左右子节点中优先级最大的节点的值，也就是当前节点优先级小
-            // 那么将左右子节点中值最小但是优先级最高的节点放入插入位置，插入节点位置变为child，继续while循环
+            // 如果插入元素的值 > 左右子节点中最小的值，那么说明插入元素不是最小的
+            // 此时元素c才是最小的，那么将c插入元素k待插入的位置，之后将元素k的插入位置改为c的位置child
+            // 继续while循环
             queue[k] = c;
             k = child;
         }
+        //
         queue[k] = key;
     }
 
@@ -785,6 +805,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     @SuppressWarnings("unchecked")
     private void heapify() {
         // 遍历queue，从[0,size/2-1]
+        // i初始化指向最后一个非叶子节点
         for (int i = (size >>> 1) - 1; i >= 0; i--)
             siftDown(i, (E) queue[i]);
     }
