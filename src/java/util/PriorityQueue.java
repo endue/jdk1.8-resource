@@ -320,9 +320,10 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      */
     // 扩容
     private void grow(int minCapacity) {
+        // 获取旧容量oldCapacity
         int oldCapacity = queue.length;
         // Double size if small; else grow by 50%
-        // 旧容量小于oldCapacity，每次+2，之后0.5倍扩容
+        // oldCapacity < 64，容量+2，否则0.5倍扩容
         int newCapacity = oldCapacity + ((oldCapacity < 64) ?
                                          (oldCapacity + 2) :
                                          (oldCapacity >> 1));
@@ -369,7 +370,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         modCount++;
         // 插入的位置，size从0开始计算
         int i = size;
-        // 超出了，则扩容，每次容量+1
+        // 超出了，则扩容
         if (i >= queue.length)
             grow(i + 1);
         // 更新size
@@ -384,10 +385,12 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     }
 
     @SuppressWarnings("unchecked")
+    // 弹出下标为0的元素并不出队
     public E peek() {
         return (size == 0) ? null : (E) queue[0];
     }
 
+    // 遍历数组查找目标元素返回元素的下标
     private int indexOf(Object o) {
         if (o != null) {
             for (int i = 0; i < size; i++)
@@ -659,12 +662,19 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         // assert i >= 0 && i < size;
         modCount++;
         int s = --size;
+        // 删除的元素是尾元素
         if (s == i) // removed last element
             queue[i] = null;
+        // 删除的元素不是尾元素
         else {
+            // 获取尾位置的元素
             E moved = (E) queue[s];
+            // 将尾位置置null
             queue[s] = null;
+            // 将尾元素作为新元素插入位置i，执行下沉操作
+            // siftDown操作会判断如果i < (size >>> 1),那么才执行下沉操作
             siftDown(i, moved);
+            // 如果元素插入i位置后没有变更，那么判断是否需要上浮操作
             if (queue[i] == moved) {
                 siftUp(i, moved);
                 if (queue[i] != moved)
@@ -687,7 +697,6 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * @param x the item to insert
      */
     // 上浮: 将元素x插入k的位置时，可能会发生上浮操作
-    // 位置k是数组最后一个元素所在位置的下一个位置
     private void siftUp(int k, E x) {
         if (comparator != null)
             siftUpUsingComparator(k, x);
