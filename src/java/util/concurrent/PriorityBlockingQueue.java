@@ -341,16 +341,17 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
             }
         }
         // 走到这里有两种可能：
-        // 1. CAS修改allocationSpinLockOffset成功
-        // 2. CAS修改allocationSpinLockOffset失败，那么newArray一定为null，此时让出CPU执行权
+        // 1.allocationSpinLock为0，且CAS修改allocationSpinLockOffset成功
+        // 2.allocationSpinLock不为0
+        // 3.allocationSpinLock为0，但CAS修改allocationSpinLockOffset失败，也就是其他线程正在扩容，那么newArray一定为null，此时让出CPU执行权
         if (newArray == null) // back off if another thread is allocating
             Thread.yield();
 
         // 再次尝试获取锁
         lock.lock();
-        // 走到这里判断是否扩容成功
+        // 走到这里判断当前线程是否扩容成功
         if (newArray != null && queue == array) {
-            // 拷贝旧数组
+            // 扩容成功，复制旧数据到新数组
             queue = newArray;
             System.arraycopy(array, 0, newArray, 0, oldCap);
         }
@@ -361,7 +362,9 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      */
     // 出队
     private E dequeue() {
+        // 获取队列中最后一个元素的下标位置
         int n = size - 1;
+        // 队列为空，直接返回null
         if (n < 0)
             return null;
         else {
@@ -394,7 +397,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * These methods are static, with heap state as arguments, to
      * simplify use in light of possible comparator exceptions.
      *
-     * @param k the position to fill 插入元素的位置
+     * @param k the position to fill 插入元素的插入位置
      * @param x the item to insert 插入的元素
      * @param array the heap array 数组
      */
@@ -549,8 +552,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
             throw new NullPointerException();
         final ReentrantLock lock = this.lock;
         lock.lock();
-        // 记录原数组保存的元素个数
-        // 记录原数组的容量
+        // n记录原数组保存的元素个数,也会作为新元素的插入位置
+        // cap记录原数组的容量
         int n, cap;
         // 记录原数组
         Object[] array;
@@ -613,6 +616,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 直接调用dequeue方法
             return dequeue();
         } finally {
             lock.unlock();
@@ -624,6 +628,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
         lock.lockInterruptibly();
         E result;
         try {
+            // 调用dequeue方法，如果返回为null，那么无限期等待，直到被唤醒
             while ( (result = dequeue()) == null)
                 notEmpty.await();
         } finally {
@@ -638,6 +643,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
         lock.lockInterruptibly();
         E result;
         try {
+            // 调用dequeue方法，如果返回为null并且剩余等待时间nanos > 0，那么等待nanos，
+            // 直到等待超时或被唤醒，继续获取元素
             while ( (result = dequeue()) == null && nanos > 0)
                 nanos = notEmpty.awaitNanos(nanos);
         } finally {
@@ -650,6 +657,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 数组不为空就返回下班位置为0的元素，但是不删除该位置的元素
             return (size == 0) ? null : (E) queue[0];
         } finally {
             lock.unlock();
