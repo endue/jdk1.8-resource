@@ -143,10 +143,12 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
         // 加锁，无需中断，因为底层是个无界队列
         lock.lock();
         try {
+            // 加入元素到PriorityQueue
             q.offer(e);
-            // 如果加入的元素成为了堆顶
+            // q.peek() == e 说明加入的元素成为了堆顶
             // 那么说明之前leader(假设存在)调用awaitNanos方法传入的参数大了，因为现在有更小的元素
-            // 所以此时需要清空leader(不存在就已经是null)并唤醒条件队列中的第一个线程，以更新的参数调用awaitNanos方法
+            // 所以此时需要清空leader(不存在就已经是null)，然后唤醒条件队列中的第一个线程，
+            // 以更小的参数调用awaitNanos方法
             if (q.peek() == e) {
                 leader = null;
                 available.signal();
@@ -197,7 +199,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
         lock.lock();
         try {
             E first = q.peek();
-            // 如果堆首元素为null或者没到期那么返回null，否则返回堆首元素
+            // 如果首元素为null或者没到期那么返回null，否则返回首元素
             if (first == null || first.getDelay(NANOSECONDS) > 0)
                 return null;
             else
@@ -219,22 +221,24 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
         lock.lockInterruptibly();
         try {
             for (;;) {
-                // 获取堆首元素
+                // 获取首元素
                 E first = q.peek();
                 // 如果为null，说明队列是空，等待
                 if (first == null)
                     available.await();
                 else {
-                    // 堆首元素不为null
-                    // 获取堆首元素的过期时间
+                    // 首元素不为null
+                    // 获取首元素的过期时间
                     long delay = first.getDelay(NANOSECONDS);
-                    // 如果小于0，说明已到期，直接返回堆首元素
+                    // 如果小于0，说明已到期，直接返回首元素
                     if (delay <= 0)
                         return q.poll();
-                    // 如果没过期，此时将first置为null
-                    // 因为接下来要阻塞等待，而在阻塞等待期间如果持有引用可能会引起内存泄漏
+                    // 如果没过期，首先将first置为null
+                    // 因为接下来要阻塞等待，而在阻塞等待期间可能first会被其他线程获取
+                    // 如果持有引用可能会引起内存泄漏
                     first = null; // don't retain ref while waiting
-                    // leader已经被占领，那么当前线程直接进入条件队列，此时的方法为await没有超时时间
+                    // leader已经被占领，说明在等待期间，其他线程获取了首元素并正在处理
+                    // 那么当前线程直接进入条件队列，此时的方法为await没有超时时间
                     if (leader != null)
                         available.await();
                     else {
@@ -242,10 +246,15 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
                         Thread thisThread = Thread.currentThread();
                         leader = thisThread;
                         try {
-                            // 之后当前进入条件队列，此时的方法为awaitNanos是有超时时间的，超时时间就是堆首元素的过期时间
+                            // 当前线程进入条件队列，此时的方法为awaitNanos是有超时时间的，超时时间就是首元素的过期时间
+                            // 1.到达等待时间
+                            // 2.被其他线程唤醒
+                            // 符合上述两个情况后，当前线程继续执行，清空leader并继续执行外层for循环再次尝试获取当前的首元素
                             available.awaitNanos(delay);
                         } finally {
-                            // 阻塞结束后，当前线程需要放弃leader身份
+                            // 阻塞结束或阻塞期间被唤醒，当前线程需要放弃leader身份
+                            // 如果不放弃，在继续执行外层for循环时，队列为空或头结点未到超时时间点，那么当前线程被阻塞住，
+                            // 此时leader有值，其他线程获取锁进来后，由于leader不为null，执行available.await()方法阻塞住
                             if (leader == thisThread)
                                 leader = null;
                         }
@@ -278,31 +287,31 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
         try {
             for (;;) {
                 E first = q.peek();
-                // 堆首为空，也就是队列为空
+                // 首为空，也就是队列为空
                 if (first == null) {
-                    // 超时直接返回null
+                    // 超时了直接返回null
                     if (nanos <= 0)
                         return null;
                     // 未超时，执行awaitNanos，等待nanos，之后继续进入for循环
                     else
                         nanos = available.awaitNanos(nanos);
                 } else {
-                    // 堆首不为空，获取堆首元素的超时时间
+                    // 首不为空，获取首元素的超时时间
                     long delay = first.getDelay(NANOSECONDS);
                     // 已到期，直接返回
                     if (delay <= 0)
                         return q.poll();
-                    // 堆首元素未到期，但是超时时间已到，直接返回null
+                    // 首元素未到期，但是超时时间已到，直接返回null
                     if (nanos <= 0)
                         return null;
                     // 如果没过期，此时将first置为null
                     // 因为接下来要阻塞等待，而在阻塞等待期间如果持有引用可能会引起内存泄漏
                     first = null; // don't retain ref while waiting
-                    // 1.nanos < delay 为true，说明当前队列中的元素肯定是等不到了，
-                    // 但是可能会在超时时间范围内，队列中被插入了更小的元素，还是存在可能的，所以讲当前线程加入条件队列等待，
-                    // 当到达超时后，重新执行for循环
-                    // 2.nanos < delay 为false，leader为true，说明leasder已经有人了，此时将自己加入等待队列，等待leader唤醒
-                    // 或超时，重新执行for循环
+                    // 1.nanos < delay 为true，说明当前队列中的元素肯定是等不到了，因为当前队首超时时间都比当前线程超时时间大，
+                    // 但是可能会在超时时间范围内，队列中被插入了更小的元素，还是存在可能的，所以将当前线程加入条件队列等待，
+                    // 当到达超时后，再重新执行for循环
+                    // 2.nanos < delay 为false，leader != null为true，说明leasder已经有人了，此时将自己加入等待队列，等待唤醒
+                    // 或超时，再重新执行for循环
                     if (nanos < delay || leader != null)
                         nanos = available.awaitNanos(nanos);
                     else {
@@ -310,10 +319,16 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
                         Thread thisThread = Thread.currentThread();
                         leader = thisThread;
                         try {
+                            // 等待首元素
+                            // 1.被唤醒
+                            // 2.等待时间到
                             long timeLeft = available.awaitNanos(delay);
-                            // 计算耗时
+                            // 计算当前线程剩余可消耗时间
                             nanos -= delay - timeLeft;
                         } finally {
+                            // 阻塞结束或阻塞期间被唤醒，当前线程需要放弃leader身份
+                            // 如果不放弃，在继续执行外层for循环时，队列为空或头结点未到超时时间点，那么当前线程被阻塞住，
+                            // 此时leader有值，其他线程获取锁进来后，由于leader不为null，执行available.await()方法阻塞住
                             if (leader == thisThread)
                                 leader = null;
                         }
