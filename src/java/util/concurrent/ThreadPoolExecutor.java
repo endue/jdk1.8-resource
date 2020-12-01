@@ -1090,7 +1090,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
     // 清理没用的worker
     private void processWorkerExit(Worker w, boolean completedAbruptly) {
-        // 如果worker在执行过程中保存，那么需要将当前工作线程数减1
+        // 如果worker在执行过程中报错，那么需要将当前工作线程数减1
         if (completedAbruptly) // If abrupt, then workerCount wasn't adjusted
             decrementWorkerCount();
 
@@ -1109,7 +1109,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         int c = ctl.get();
         // 当前线程池状态是RUNNING或SHUTDOWN时才补充线程
         if (runStateLessThan(c, STOP)) {
-            // 如果completedAbruptly为true，也就是worker在执行过程中保存，由于最开始的if判断递减了工作线程数
+            // 如果completedAbruptly为true，也就是worker在执行过程中报错，由于最开始的if判断递减了工作线程数
             // 所以这里需要补回来
             if (!completedAbruptly) {
                 // min记录corePoolSize的最小值，如果设置了allowCoreThreadTimeOut那么这个值就是0
@@ -1543,7 +1543,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 // 执行拒绝策略
                 reject(command);
             // 两种情况执行else if
-            // 1.线程池状态是RUNNING
+            // 1.线程池状态是RUNNING,但是此时的corePoolSize初始化一定是设置为0了，所以启动非核心线程
             // 2.线程池状态不是RUNNING && 从阻塞队列workQueue中移除当前任务失败
             // 判断工作的线程数量 == 0
             else if (workerCountOf(recheck) == 0)
