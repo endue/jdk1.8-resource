@@ -1288,10 +1288,10 @@ public abstract class AbstractQueuedSynchronizer
      */
     // 尝试获取独占锁
     public final void acquire(int arg) {
-        // 获取锁失败之后(线程B为例)
-        // 1.执行tryAcquire，再次尝试获取锁,成功返回true,失败返回false(假设线程B获取失败)
-        //  1.1.获取锁成功直接返回
-        //  1.2.获取锁失败继续执行
+        // 获取锁失败之后
+        // 1 执行tryAcquire，获取锁操作，抽象方法，具体交给子类实现
+        //  1.1 成功返回true
+        //  1.2 失败返回false，继续往下执行
         // 2.执行addWaiter
         //  2.1.将当前线程封装到一个node节点中，然后添加到AQS队列尾部(队列的头结点为一个空node)
         // 3.执行acquireQueued
