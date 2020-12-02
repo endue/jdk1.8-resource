@@ -626,7 +626,6 @@ public abstract class AbstractQueuedSynchronizer
      */
     private Node addWaiter(Node mode) {
         // 如果是排它锁，则mode为EXCLUSIVE(null)，如果是共享锁，则为SHARED(空node)
-        // (线程B此时是排它锁，所以mode为EXCLUSIVE)
         // 把当前线程封装到一个node中并设置next节点为mode
         Node node = new Node(Thread.currentThread(), mode);
         // Try the fast path of enq; backup to full enq on failure
@@ -634,13 +633,10 @@ public abstract class AbstractQueuedSynchronizer
         Node pred = tail;
         if (pred != null) {
             // 将当前线程节点的prev指向tail
-            // (线程B节点对应的prev就是tail)
             node.prev = pred;
             // 更新tail为当前线程节点
-            // (tail指向线程B节点)
             if (compareAndSetTail(pred, node)) {
                 // 旧的tail节点的next指向当前线程节点
-                // (旧的tail节点的next指向线程B)
                 pred.next = node;
                 return node;
             }
@@ -784,7 +780,9 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * Cancels an ongoing attempt to acquire.
-     *
+     *       <-    <----
+     *  ...A    B   ...  node ...
+     *       ->    ---->
      * @param node the node
      */
     // 取消竞争锁
@@ -794,13 +792,23 @@ public abstract class AbstractQueuedSynchronizer
             return;
 
         node.thread = null;
-
+        /**
+         *    <-    <----
+         *  A    B   ...  node
+         *    ->    ---->
+         */
         // Skip cancelled predecessors
         // 遍历AQS队列
         // 从当前节点的前驱节点开始，直到遇到 waitStatus <= 0 节点后跳出循环
         // 也就是将CANCELLED状态的节点从队列中删除
-        // 此时node的prev指向了它前面的第一个waitStatus <= 0的节点，如A节点
+        // 此时node.prev指向了它前面的第一个waitStatus <= 0的节点，如node.prev = A节点
         // 但是A节点的next还是指向原来的节点，如B节点,注意这个B节点状态是CANCELLED的
+        /**
+         *      <----------
+         *      <-
+         * ...A    B   ...  node ...
+         *      ->    ---->
+         */
         Node pred = node.prev;
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
@@ -818,24 +826,36 @@ public abstract class AbstractQueuedSynchronizer
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
-        // 如果当前节点已经是AQS队列尾结点了，由于被取消了，所以需要更新尾结点
+        // 如果node节点已经是AQS队列尾结点了，由于被取消了，所以需要更新尾结点
         // 更新尾结点指向A，然后设置A节点的next节点为null(因为B节点状态也是CANCELLED的)
         if (node == tail && compareAndSetTail(node, pred)) {
+            /**
+             *    <--------------
+             *    <-
+             * A(tail)    B   ...  node
+             *              ---->
+             */
             compareAndSetNext(pred, predNext, null);
         } else {
-            // 如果当前节点不是尾结点，判断是否需要唤醒后继节点
+            // 如果node节点不是尾结点，判断是否需要唤醒后继节点
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
+            // 记录node的前驱节点waitStatus
             int ws;
-            // 唤醒当前节点的后继节点要求当前节点的前驱节点是头结点
-            // 否则当前节点的前驱节点不是头结点，也就不需要唤醒它的后继节点
-            // 这时需要更新当前节点的后继和前驱节点的指向关系
-            //  在更新关系前，需要判断当前节点的前驱节点的状态，如果 <= 0 需要设置为SIGNAL，以便改变指向关系后之后能唤醒当前节点的后继节点
+            // 1.node的前驱节点不是头结点
+            //      node的pred如果是头节点，那么由于node节点取消了，所以应该唤醒node的后续节点，此时走else逻辑就可以,被唤醒后的node后继节点
+            //      会尝试获取锁，然后更新头节点
+            // 2.判断node的前驱节点的状态
+            //   2.1 (ws = pred.waitStatus) == Node.SIGNAL 也就是node的前驱节点状态是SIGNAL
+            //   2.2  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))
+            //      2.2.1 ws <= 说明node的前驱节点状态是SIGNAL(独占锁模式)、CONDITION(等待队列模式)、PROPAGATE(共享锁模式)、0(新添加节点)
+            //      2.2.2 设置前驱节点状态为SIGNAL
+            // 3.前驱节点包含某个线程
+            // 最终更新节点A的next为node.next
             if (pred != head &&
-                ((ws = pred.waitStatus) == Node.SIGNAL ||
-                 (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
+                ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
-                // 更新指向关系
+                // 更新A节点next指向
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
@@ -843,8 +863,11 @@ public abstract class AbstractQueuedSynchronizer
                 unparkSuccessor(node);
             }
             // 此时当前节点的next指向自己
-            // node、predNext节点的prev 指向 prev节点
-            // prev节点指向当前节点之前的next节点
+            /**
+             *   <-
+             * A    B   ...  node
+             *          ---->
+             */
             node.next = node; // help GC
         }
     }
@@ -858,6 +881,9 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node
      * @return {@code true} if thread should block
      */
+    // 设置node节点的前驱节点pred的状态为SIGNAL
+    // 如果pred状态 > 0，那么递归向前遍历，直到找到第一个 <= 0的节点
+    // 然后设置该前驱节点状态为SIGNAL
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
         // pred为node的前一个节点(以线程B为例，它的前一个节点为空node，会走到else里面，然后设置头结点为SIGNAL，然后返回false)
 
@@ -902,6 +928,7 @@ public abstract class AbstractQueuedSynchronizer
      *
      * @return {@code true} if interrupted
      */
+    // 阻塞当前线程，被唤醒后返回中断标识符同时清空中断标识符
     private final boolean parkAndCheckInterrupt() {
         LockSupport.park(this);
         return Thread.interrupted();
@@ -929,7 +956,7 @@ public abstract class AbstractQueuedSynchronizer
         try {
             boolean interrupted = false;
             for (;;) {
-                // 获取node的前一个节点（z这里可能会抛出空指针一次）
+                // 获取node的前一个节点（这里可能会抛出空指针一次）
                 final Node p = node.predecessor();
                 // 如果前一个节点是头节点，则尝试获取锁
                 if (p == head && tryAcquire(arg)) {
@@ -944,12 +971,15 @@ public abstract class AbstractQueuedSynchronizer
                 // 如下情况会走到这里：
                 // a.当前node的前一个节点不是头结点
                 // b.是头节点，但是获取锁失败(非公平锁出现多线程竞争)
-                // 1.执行shouldParkAfterFailedAcquire(以线程B为例，该方法会返回false,然后设置头结点状态为SIGNAL，之后继续for循环，再次执行该方法会返回true)
-                // 2.执行parkAndCheckInterrupt(线程B被挂起..就会卡到这里，直到被唤醒,然后返回当前线程是否被中断，继续执行3)
-                // 3.如果线程被中断，则设置interrupted为true,继续for循环(重复以上步骤，直到线程B获取锁，然后返回interrupted)
+                // 1.执行shouldParkAfterFailedAcquire
+                //  1.1 当前节点的前驱结点waitStatus为SIGNAL，返回true,执行parkAndCheckInterrupt
+                //  1.2 当前节点的前驱节点waitStatus > 0也就是CANCELLED的，向前递归遍历到第一个waitStatus <=0 的节点，
+                //      然后设置其状态为SIGNAL的，返回false，继续执行上面的for (;;)操作，获取锁失败后，进入1.1的逻辑
+                // 2.执行parkAndCheckInterrupt(线程被挂起..卡到这里，直到被唤醒后返回当前线程中断标识符(并还会清空中断标识符))
+                // 3.线程被中断了，则设置interrupted为true,继续for循环(重复以上步骤，直到线程B获取锁，然后返回interrupted)
+                //   这里可以看出非中断获取锁的流程，在获取锁的过程中是不响应中断的，但是会返回失败中断过
                 // 4.如果线程再次获取锁失败，依旧会阻塞，等待获取锁的线程唤醒
-                if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt())
                     interrupted = true;
             }
         } finally {
@@ -1298,7 +1328,7 @@ public abstract class AbstractQueuedSynchronizer
         //  3.1.获取锁成功，判断是否被中断标识
         //  3.2.获取锁失败，内部会被挂起，直到被唤醒，再次尝试获取锁，直到成功
         //  3.2.返回线程是否被中断标识符
-        //4.如果线程被中断，执行selfInterrupt，中断当前线程(TODO：线程在获取锁过程中即使被中断也不响应，直到获取锁成功才会响应？)
+        //4.如果线程被中断，执行selfInterrupt，中断当前线程
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
             selfInterrupt();
