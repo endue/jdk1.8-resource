@@ -685,7 +685,8 @@ public abstract class AbstractQueuedSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
-        // 如果当前节点后继节点为null，则从队尾开始向前找最后一个节点状态 < 0 的节点
+        // 如果当前节点后继节点为null或者后继节点状态为CANCELLED，
+        // 则从队尾开始向前找最后一个节点状态 < 0 的节点
         Node s = node.next;
         if (s == null || s.waitStatus > 0) {
             s = null;
@@ -703,7 +704,9 @@ public abstract class AbstractQueuedSynchronizer
      * propagation. (Note: For exclusive mode, release just amounts
      * to calling unparkSuccessor of head if it needs signal.)
      */
-    // 释放共享锁
+    // 释放共享锁,如下两个操作走到这里
+    // 1. 获取共享锁后(releaseShared->doReleaseShared)
+    // 2. 释放共享锁(acquireShared->doAcquireShared->setHeadAndPropagate(这里判断s == null || s.isShared())->doReleaseShared)会调用该方法
     private void doReleaseShared() {
         /*
          * Ensure that a release propagates, even if there are other
@@ -716,20 +719,34 @@ public abstract class AbstractQueuedSynchronizer
          * unparkSuccessor, we need to know if CAS to reset status
          * fails, if so rechecking.
          */
-        // todo 待研究
+
         for (;;) {
             Node h = head;
+            // 1.h != null && h != tail成立，说明队列中存在其他节点
             if (h != null && h != tail) {
+                // 记录头结点的状态
                 int ws = h.waitStatus;
+                // head状态只可能出现SIGNAL、0
+
+                // 如果head状态是SIGNAL
                 if (ws == Node.SIGNAL) {
+                    // cas操作修改head的waitStatus=0,如果成功，执行unparkSuccessor(h)，唤醒head的后继
+                    // cas操作失败，说明head的waitStatus被修改为了0,说明释放共享锁出现了并发
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
                         continue;            // loop to recheck cases
                     unparkSuccessor(h);
                 }
+                // ws == 0，也就是h.waitStatus为0
+                // 情况一：队列中只剩下head==tail了
+                // 情况二：在只剩下head==tail情况下，来一个线程获取锁失败，封装成node进入AQS等待队列并且在执行shouldParkAfterFailedAcquire之前
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
             }
+            // 2. h != null不成立 说明当前线程获取锁与释放锁的过程中，AQS阻塞队列一直没初始化，
+            //   那么之后判断head是否发了变化，如果变化了那说明AQS阻塞队列中加入了其他节点，需要唤醒
+            // 3. h != null成立 && h != tail不成立，也就是head == tail了
+            //   那么也需要判断head是否发生了变化，如果变化了那说明AQS阻塞队列中加入了其他节点，需要唤醒
             if (h == head)                   // loop if head changed
                 break;
         }
@@ -744,8 +761,9 @@ public abstract class AbstractQueuedSynchronizer
      * @param propagate the return value from a tryAcquireShared
      */
     private void setHeadAndPropagate(Node node, int propagate) {
+        // h这里指向旧的head
         Node h = head; // Record old head for check below
-        // 更新头节点为当前节点
+        // 更新head为node
         setHead(node);
         /*
          * Try to signal next queued node if:
@@ -763,11 +781,24 @@ public abstract class AbstractQueuedSynchronizer
          * racing acquires/releases, so most need signals now or soon
          * anyway.
          */
-        // propagate > 0
-        // h == null
-        // h.waitStatus < 0
-        // (h = head) == null
-        // h.waitStatus < 0
+        // propagate含义(进入这里propagate >= 0)
+        // 1.Semaphore
+        //  返回剩余的信号量
+        // 2.CountDownLatch
+        //  await获取共享锁,代码(getState() == 0) ? 1 : -1，-1表示state不为0，1表示state为0
+        //  如果为1也就是此时需要唤醒AQS队列中等待的线程了,如果为-1就把自己阻塞住，等某个线程调用countDown的时候来唤醒
+        // 3.ReentrantReadWriteLock
+        //  返回1表示获取读锁成功，-1表示失败
+
+        /**
+         * 之前版本该方法代码
+         *  setHead(node);
+         *  if (propagate > 0 && node.waitStatus != 0) {
+         *      Node s = node.next;
+         *      if (s == null || s.isShared())
+         *          unparkSuccessor(node);
+         *  }
+         */
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
@@ -904,7 +935,7 @@ public abstract class AbstractQueuedSynchronizer
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
             pred.next = node;
-        } else {
+        } else {// 0、PROPAGATE、CONDITION
             /*
              * waitStatus must be 0 or PROPAGATE.  Indicate that we
              * need a signal, but don't park yet.  Caller will need to
@@ -1071,6 +1102,13 @@ public abstract class AbstractQueuedSynchronizer
                 // 前继节点是头结点，才去获取读锁，否则自旋
                 if (p == head) {
                     // 再次尝试获取读锁
+                    // 1.Semaphore
+                    //  返回剩余的信号量
+                    // 2.CountDownLatch
+                    //  await获取共享锁,代码(getState() == 0) ? 1 : -1，-1表示state不为0，1表示state为0
+                    //  如果为1也就是此时需要唤醒AQS队列中等待的线程了,如果为-1就把自己阻塞住，等某个线程调用countDown的时候来唤醒
+                    // 3.ReentrantReadWriteLock
+                    //  返回1表示获取读锁成功，-1表示失败
                     int r = tryAcquireShared(arg);
                     // r >= 0 获取读锁成功
                     if (r >= 0) {
