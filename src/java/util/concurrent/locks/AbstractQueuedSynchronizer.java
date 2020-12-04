@@ -743,7 +743,8 @@ public abstract class AbstractQueuedSynchronizer
                 //      head状态就是0，然后线程C获取共享锁成功，head执行了C,也就是head==tail并且waitStatus是0，然后线程A在获取head.waitStatus就是0，
                 //      进入else if (ws == 0 && !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                 // 情况二：在只剩下head==tail情况下，来一个线程获取锁失败，封装成node进入AQS等待队列并且在执行shouldParkAfterFailedAcquire之前
-                // 情况三：
+                // 情况三：此时队列中有多个node，有线程刚释放了锁，刚执行了unparkSuccessor里的if (ws < 0) compareAndSetWaitStatus(node, ws, 0);把head的状态设置为了0，
+                //      然后唤醒head后继线程，head后继线程获取锁成功，直到head后继线程将自己设置为AQS的新head的这段时间里，head的状态为0
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
