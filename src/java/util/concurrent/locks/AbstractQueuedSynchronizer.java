@@ -676,7 +676,6 @@ public abstract class AbstractQueuedSynchronizer
         int ws = node.waitStatus;
         // 如果当前节点状态 < 0 则更新为0
         if (ws < 0)
-
             compareAndSetWaitStatus(node, ws, 0);
 
         /*
@@ -705,8 +704,8 @@ public abstract class AbstractQueuedSynchronizer
      * to calling unparkSuccessor of head if it needs signal.)
      */
     // 释放共享锁,如下两个操作走到这里
-    // 1. 获取共享锁后(releaseShared->doReleaseShared)
-    // 2. 释放共享锁(acquireShared->doAcquireShared->setHeadAndPropagate(这里判断s == null || s.isShared())->doReleaseShared)会调用该方法
+    // 1. 释放共享锁(releaseShared->doReleaseShared)
+    // 2. 获取共享锁(acquireShared->doAcquireShared->setHeadAndPropagate【这里判断s == null || s.isShared()】->doReleaseShared)
     private void doReleaseShared() {
         /*
          * Ensure that a release propagates, even if there are other
@@ -1105,16 +1104,12 @@ public abstract class AbstractQueuedSynchronizer
             for (;;) {
                 // 获取当前节点的前继节点
                 final Node p = node.predecessor();
-                // 前继节点是头结点，才去获取读锁，否则自旋
+                // 前继节点是头结点，再次尝试获取读锁
                 if (p == head) {
-                    // 再次尝试获取读锁
-                    // 1.Semaphore
-                    //  返回剩余的信号量
-                    // 2.CountDownLatch
-                    //  await获取共享锁,代码(getState() == 0) ? 1 : -1，-1表示state不为0，1表示state为0
-                    //  如果为1也就是此时需要唤醒AQS队列中等待的线程了,如果为-1就把自己阻塞住，等某个线程调用countDown的时候来唤醒
-                    // 3.ReentrantReadWriteLock
-                    //  返回1表示获取读锁成功，-1表示失败
+                    // 1.Semaphore：返回剩余的信号量
+                    // 2.CountDownLatch：：await获取共享锁,代码(getState() == 0) ? 1 : -1，-1表示state不为0，1表示state为0
+                    //      如果为1也就是此时需要唤醒AQS队列中等待的线程了,如果为-1就把自己阻塞住，等某个线程调用countDown的时候来唤醒
+                    // 3.ReentrantReadWriteLock：返回1表示获取读锁成功，-1表示失败
                     int r = tryAcquireShared(arg);
                     // r >= 0 获取读锁成功
                     if (r >= 0) {
@@ -1461,7 +1456,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     // 尝试获取共享锁
     public final void acquireShared(int arg) {
-        // 1. tryAcquireShared返回 < 0 获取读锁失败执行doAcquireShared
+        // 1. tryAcquireShared返回 < 0 获取共享锁失败执行doAcquireShared
         if (tryAcquireShared(arg) < 0)
             // 获取共享锁失败将当前线程加入AQS队列
             doAcquireShared(arg);
