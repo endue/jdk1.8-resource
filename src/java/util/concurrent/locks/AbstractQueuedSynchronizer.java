@@ -1645,7 +1645,7 @@ public abstract class AbstractQueuedSynchronizer
     // A：因为如果线程Ar(读锁)、Bw(写锁)同时获取锁，由于读写互斥，假设Ar获得读锁，此时Bw加入AQS队列被阻塞
     //    在Ar释放读锁之前，假设又来一批读锁Ar1、Ar2、Ar3、Ar4、Ar5。由于读锁之间不互斥，这就会导致Bw一直无法执行
     //    于是加了如下判断，但再来读锁时，如果是非公平锁，需要判断head.next是否为独占模式，如果是，那么读锁Ar1、Ar2、
-    //    Ar3、Ar4、Ar5需要加入AQS队列等待。但是这知识一种概率性的情况？
+    //    Ar3、Ar4、Ar5需要加入AQS队列等待。但是这只是一种概率性的情况？
     //    如果此时获取锁的是一个写锁，AQS队列的head.next是Ar->Bw。当持有写锁的线程释放锁，同时读锁Ar1、Ar2、Ar3、Ar4、Ar5
     //    来竞争获取读锁，而Ar、Bw获取锁失败，当再来读锁Arx的时候，由于head.next是Ar共享模式，所以Arx依旧可以获取到读锁
     //    综上所述，下面的判断只是针对概率性的判断
@@ -1708,9 +1708,9 @@ public abstract class AbstractQueuedSynchronizer
         Node h = head;
         Node s;
         // 1.返回true表示有其他节点
-        // 大的前提是 h != t ,当AQS队列存在一个nodeA节点时h = node（空），tail = nodeA
-        //  1.1. h != t && 头结点的下一个节点为null  AQS空队列
-        //  1.2. h != t && 头结点的下一个节点不为null && 头结点的下一个节点的线程不是当前线程 = AQS队列不为空，当前线程是头结点的下一个节点
+        //  1.1 h != t 成立，说明队列不为空，如果不成立，说明AQS等待队列为空，没有其他等待节点
+        //  1.2 h != t 成立 && (s = h.next) == null成立，说明AQS等待队列正在被某个线程初始化
+        //  1.3 h != t 成立 && (s = h.next) == null不成立 && s.thread != Thread.currentThread()成立，说明头结点的下一个节点不为null并且不是当前线程
         return h != t &&
             ((s = h.next) == null || s.thread != Thread.currentThread());
     }
