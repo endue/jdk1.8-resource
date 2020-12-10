@@ -806,7 +806,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     //
     // -1：表示有线程正在初始化、扩容table数组 参考方法：initTable、tryPresize
-    // 最高位为1也就是<0：表示可能正在扩容 参考方法：addCount
+    // -(1 + n )：表示正在帮忙扩容的线程数 参考方法：addCount
+    // 其他：当调用不带初始化容量的构造方法时记录表的默认大小16、当调用带初始容量的构造方法时记录初始化时需要的大小
     private transient volatile int sizeCtl;
 
     /**
@@ -1101,9 +1102,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                             }
                         }
                         // key所在table数组的下标位置的节点为TreeBin类型
+                        // 在转换为红黑树后，下标位置会放一个TreeBin，而TreeBin的hash值为TREEBIN(-2)
                         else if (f instanceof TreeBin) {
                             Node<K,V> p;
-                            // todo 为啥是2？
+                            // todo 为啥是2？详见addCount方法
                             binCount = 2;
                             // 将当前节点放到树中
                             // 如果存在重复节点，则返回重复节点
