@@ -2391,6 +2391,11 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 !(uncontended =
                   U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
                 // CAS修改baseCount失败或CAS修改当前线程对应位置的counterCell失败
+                /**
+                 * 它线程能走到full方法里，一定是出现了并发竞争并且当前线程在竞争过程中失败了。
+                 * 所以进入full，而竞争成功的线程会去判断是否扩容，竞争失败的只需增加map中元素数量即可,
+                 * 这里也说明了为什么不使用LongAdder，而是把LongAdder代码重写一遍
+                 */
                 fullAddCount(x, uncontended);
                 return;
             }
