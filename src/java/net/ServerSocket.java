@@ -60,6 +60,7 @@ class ServerSocket implements java.io.Closeable {
 
     /**
      * The implementation of this Socket.
+     * 默认实现SocksSocketImpl,参考{@link java.net.ServerSocket#setImpl()}
      */
     private SocketImpl impl;
 
@@ -227,6 +228,7 @@ class ServerSocket implements java.io.Closeable {
      * @since   JDK1.1
      */
     public ServerSocket(int port, int backlog, InetAddress bindAddr) throws IOException {
+        // 初始化属性impl,默认实现为SocksSocketImpl
         setImpl();
         if (port < 0 || port > 0xFFFF)
             throw new IllegalArgumentException(

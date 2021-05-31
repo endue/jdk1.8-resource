@@ -27,6 +27,7 @@ package java.lang;
 import java.io.*;
 import java.lang.reflect.Executable;
 import java.lang.annotation.Annotation;
+import java.nio.channels.spi.AbstractInterruptibleChannel;
 import java.security.AccessControlContext;
 import java.util.Properties;
 import java.util.PropertyPermission;
@@ -1248,6 +1249,13 @@ public final class System {
                     E[] getEnumConstantsShared(Class<E> klass) {
                 return klass.getEnumConstantsShared();
             }
+
+            /**
+             * 设置Thread的blocker属性
+             * 调用地点{@link AbstractInterruptibleChannel#blockedOn(Interruptible)}
+             * @param t
+             * @param b
+             */
             public void blockedOn(Thread t, Interruptible b) {
                 t.blockedOn(b);
             }

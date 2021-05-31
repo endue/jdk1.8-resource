@@ -233,7 +233,10 @@ class Thread implements Runnable {
     private volatile Interruptible blocker;
     private final Object blockerLock = new Object();
 
-    /* Set the blocker field; invoked via sun.misc.SharedSecrets from java.nio code
+    /**
+     * Set the blocker field; invoked via sun.misc.SharedSecrets from java.nio code
+     * 初始化blocker,针对Channel加入可中断的能力
+     * 调用地点参考: {@link java/lang/System.java:1251}
      */
     void blockedOn(Interruptible b) {
         synchronized (blockerLock) {

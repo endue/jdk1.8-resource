@@ -153,8 +153,10 @@ public abstract class AbstractInterruptibleChannel
      * closing and interruption for this channel.  </p>
      */
     protected final void begin() {
+        // 初始化interruptor
         if (interruptor == null) {
             interruptor = new Interruptible() {
+                   // 在线程被中断时,会调用此方法
                     public void interrupt(Thread target) {
                         synchronized (closeLock) {
                             if (!open)
@@ -167,8 +169,10 @@ public abstract class AbstractInterruptibleChannel
                         }
                     }};
         }
+        // 绑定到当前线程的blocker属性
         blockedOn(interruptor);
         Thread me = Thread.currentThread();
+        // 如果当前线程被打断,赋值interrupted属性
         if (me.isInterrupted())
             interruptor.interrupt(me);
     }
@@ -195,18 +199,22 @@ public abstract class AbstractInterruptibleChannel
     protected final void end(boolean completed)
         throws AsynchronousCloseException
     {
+        // 解除绑定,将当前线程的Interruptible引用置空(因为操作已经结束)
         blockedOn(null);
         Thread interrupted = this.interrupted;
+        // interrupted属性不为null并且等于当前线程,说明当前线程被打断了
         if (interrupted != null && interrupted == Thread.currentThread()) {
             interrupted = null;
             throw new ClosedByInterruptException();
         }
+        // 如果是io操作中被中断, 且是当前线程被中断 , 则抛出ClosedByInterruptException
         if (!completed && !open)
             throw new AsynchronousCloseException();
     }
 
 
     // -- sun.misc.SharedSecrets --
+    // 此方法在这里实际上就是为Thread 实例中的 Interruptible属性赋值
     static void blockedOn(Interruptible intr) {         // package-private
         sun.misc.SharedSecrets.getJavaLangAccess().blockedOn(Thread.currentThread(),
                                                              intr);
