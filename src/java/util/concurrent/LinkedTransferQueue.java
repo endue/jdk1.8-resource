@@ -632,6 +632,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
     //      xfer(null, false, TIMED, unit.toNanos(timeout))
     private E xfer(E e, boolean haveData, int how, long nanos) {
         // 如果是haveData && e为null 则抛空指针一次
+        // 也就是不允许放置null
         if (haveData && (e == null))
             throw new NullPointerException();
         Node s = null;                        // the node to append, if needed
@@ -639,8 +640,10 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
         retry:
         for (;;) {                            // restart on append race
 
-            // 链表不为空
+            // 从链表头结点开始遍历
+            // 如果链表不为空，就会进入for循环
             for (Node h = head, p = h; p != null;) {  // find & match first node
+                // 获取遍历节点的模式以及数据
                 boolean isData = p.isData;
                 Object item = p.item;
                 // (item != null) == isData 说明p节点item没发生变化也就是和创建时一样
@@ -649,6 +652,8 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                     if (isData == haveData)   // can't match
                         break;
                     // 找到匹配的节点
+                    // 1.参数haveData是data类型，这里是把null改非null
+                    // 2.参数haveData是request类型，这里是把非null改null
                     // cas操作设置p的itme为e
                     if (p.casItem(item, e)) { // match
                         // 如果p不是头结点
@@ -677,7 +682,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 p = (p != n) ? n : (h = head); // Use head if p offlist
             }
 
-            // 走到这里说明没找到匹配的节点
+            // 走到这里说明没找到匹配的节点(包括链表为空)
 
             // 那么会根据节点类型做不同的操作：
             // NOW：立即返回，也不会插入节点
@@ -690,7 +695,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 // s为null，则创建一个新节点
                 if (s == null)
                     s = new Node(e, haveData);
-                // 将新节点s添加到队列尾并返回s的前驱节点
+                // 将新节点s添加到队尾并返回s的前驱节点
                 Node pred = tryAppend(s, haveData);
                 // 如果前驱为null，说明队列中存在相反模式的节点，从头开始遍历
                 if (pred == null)
@@ -700,7 +705,7 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
                 if (how != ASYNC)
                     return awaitMatch(s, pred, e, (how == TIMED), nanos);
             }
-            // 如果 how == NOW 理解返回
+            // 如果 how == NOW 立即返回
             return e; // not waiting
         }
     }
@@ -714,26 +719,52 @@ public class LinkedTransferQueue<E> extends AbstractQueue<E>
      * different mode, else s's predecessor, or s itself if no
      * predecessor
      */
+    // 尝试将节点s追加为尾
     private Node tryAppend(Node s, boolean haveData) {
+        // 从队列尾部开始遍历
+        // t指向tail，作为锚点
+        // p指向t，从t开始向后遍历
         for (Node t = tail, p = t;;) {        // move p to last node and append
+            // n指向p的后继节点
+            // u每次循环指向最新的tail
             Node n, u;                        // temps for reads of next & tail
             // 如果tail = null，head = null
-            // 说明队列为空，将当前节点s放入队头并返回自身
+            // 说明队列为空，将当前节点s放入队头并返回自身，也就是初始化队列
             if (p == null && (p = head) == null) {
                 if (casHead(null, s))
                     return s;                 // initialize
             }
-            // p节点是否为相反模式的节点
+            /* 执行到这里说明队列一定不为空 */
+
+            // p节点与s节点是相反模式的节点，则返回null
             else if (p.cannotPrecede(haveData))
                 return null;                  // lost race vs opposite mode
-
+            // p节点是否存在后继节点，如果是进入代码
+            // 该端代码是向后查找后继节点，直到找到或者返回null
             else if ((n = p.next) != null)    // not last; keep traversing
+                // 1.p != t成立 && t != tail成立，这种情况说明tail发生变更，将p和t指向最新的tail节点，类似重新for循环
+                // 2.p != t成立 && t != tail不成立
+                // 3.p != t不成立，短路t != (u = tail)
+                // 上述2--3情况都没有必要更新t为最新tail，只需要向后遍历即可
+                // 4.p != n成立，说明有下一个节点赋值p = n
+                // 5.p != n不成立，说明没有后继节点赋值p = null todo？这里是为了什么
                 p = p != t && t != (u = tail) ? (t = u) : // stale tail
                     (p != n) ? n : null;      // restart if off list
+
+            /* 执行到这里说明p.next一定为null */
+
+            // CAS添加节点s添加到队尾失败，进入else if
             else if (!p.casNext(null, s))
+                // 此时p一定有后继节点，向后移动p节点即可
                 p = p.next;                   // re-read on CAS failure
+
+            // CAS添加节点s添加到队尾成功，进入else if
             else {
+                // p != t说明p从tail节点开始已经向后发生了移动
                 if (p != t) {                 // update if slack now >= 2
+                    // tail != t 不成立，说明尾结点没有发生变更，tail --> p --> s，尝试casTail(t, s)，更新尾结点为s，返回s的前驱节点s
+                    // tail != t 成立 ，说明尾节点发生了变更，尝试更新t为最新的tail
+                    // tail != t 不成立 && casTail(t, s)失败，
                     while ((tail != t || !casTail(t, s)) &&
                            (t = tail)   != null &&
                            (s = t.next) != null && // advance and retry
