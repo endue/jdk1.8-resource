@@ -625,6 +625,7 @@ public class ThreadLocal<T> {
             // We clean out whole runs at a time to avoid continual
             // incremental rehashing due to garbage collector freeing
             // up refs in bunches (i.e., whenever the collector runs).
+            // 标记要擦除的起始位置
             int slotToExpunge = staleSlot;
             // 从staleSlot的前一个位置开始向前查找，直到找到位置i，该位置entry为null，此时slotToExpunge = 当前i + 1
             // 也就是从staleSlot的前一个位置开始，一直到i+1的位置，所有位置的entry都不为null，称为staleSlot的前段
@@ -648,7 +649,7 @@ public class ThreadLocal<T> {
                 // encountered above it, can then be sent to expungeStaleEntry
                 // to remove or rehash all of the other entries in run.
 
-                // 在找staleSlot的后的中找到了对应的ThreadLocal，位置为下标i
+                // 在找staleSlot的后段中找到了对应的ThreadLocal，位置为下标i
                 if (k == key) {
                     // 更新旧值
                     e.value = value;
