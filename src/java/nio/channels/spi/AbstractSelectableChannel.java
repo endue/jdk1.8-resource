@@ -68,6 +68,7 @@ public abstract class AbstractSelectableChannel
     private final Object regLock = new Object();
 
     // Blocking mode, protected by regLock
+    // 只有非阻塞模式的通道，才可以注册到选择器
     boolean blocking = true;
 
     /**
@@ -197,6 +198,7 @@ public abstract class AbstractSelectableChannel
                 throw new ClosedChannelException();
             if ((ops & ~validOps()) != 0)
                 throw new IllegalArgumentException();
+            // 校验非阻塞,也就是只有非阻塞模式的通道，才可以注册到选择器
             if (blocking)
                 throw new IllegalBlockingModeException();
             SelectionKey k = findKey(sel);

@@ -691,21 +691,22 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * unlinks indexes to deleted nodes found along the way.  Callers
      * rely on this side-effect of clearing indices to deleted nodes.
      * @param key the key 被查找的key
-     * @return a predecessor of key  被查找key的前驱节点或就是它自己
+     * @return a predecessor of key  被查找key的前驱节点
      * 在寻找的过程中遇到删除的节点，会帮忙删除
      */
     private Node<K,V> findPredecessor(Object key, Comparator<? super K> cmp) {
         if (key == null)
             throw new NullPointerException(); // don't postpone errors
         for (;;) {
-            // 从headIndex节点开始，向其右侧遍历，head节点永远是最左侧最高的HeadIndex
+            // 从headIndex节点开始，向其右侧遍历，head节点永远是最左侧最高的BASE_HEADER
             for (Index<K,V> q = head, r = q.right, d;;) {
                 // r不为null，说明当前索引q右侧有索引
                 if (r != null) {
+                    // q --> r
                     // 获取r关联的node节点n以及节点记录的key
                     Node<K,V> n = r.node;
                     K k = n.key;
-                    // n节点已被删除，其索引r也就没用了
+                    // 需要删除r
                     if (n.value == null) {
                         // 断开q和r的关联关系，将q.right修改为r.right,如：q -> r -> x 修改为 q -> x
                         if (!q.unlink(r))// 操作失败，1.r索引节点不再是之前的r，也就是链表发生了变更，2.q关联的node节点的value为null,也就是q索引也应该删掉
@@ -714,23 +715,22 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                         r = q.right;         // reread r
                         continue;
                     }
-                    // n节点没被删除
-                    // 查找的key比当前节点的k要大，说明key在当前节点的右侧，继续获取右侧节点遍历
+                    // 不需要删除r
                     if (cpr(cmp, key, k) > 0) {
+                        // key > r，则获取r的右侧节点继续比较
                         q = r;
                         r = r.right;
                         continue;
                     }
                 }
                 // 走到这里说明:
-                // 1.r为null 这一层索引查找完了，需要查找下一层
-                // 2.r不为null并且cpr操作 <= 0  查找的key比节点n的key大而节点n属于索引r，r是q索引的right。也就是说要查找的key在q和r两个索引之间
-                //                  那么需要从q索引的下一层开始继续查找
+                // 1.r为null该层索引未查到key,获取r的left的down节点d,也就是r的下一层继续比较
+                // 2.r不为null但cpr(..) <= 0,此时的key介于q和r之间，获取r的left的down节点d,也就是r的下一层继续比较
 
-                // 如果(d = q.down) == null说明q所在索引层已经是最底层了，只能返回q.node
+                // 如果d == null说明r所在索引层已经是最底层了，只能返回q.node,此时的q <= key
                 if ((d = q.down) == null)
                     return q.node;
-                // 否则就是q.down != null，遍历下一层，因为上一次q已经比查找的key小了，所以遍历到下一层时从q.right开始继续查找
+                // 否则d != null，遍历下一层，因为上一层q < key，到下一层时从q.right开始继续查找
                 q = d;
                 r = d.right;
             }
@@ -832,15 +832,15 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             // 找到key的前驱节点b，然后从b.next开始遍历，每次操作的都是节点n
             for (Node<K,V> b = findPredecessor(key, cmp), n = b.next;;) {
                 Object v; int c;
-                // b的后继节点为null了，也就是遍历结束了还没找到
+                // b的后继节点为null了，参数key不存在，返回null
                 if (n == null)
                     break outer;
-                // n现在不是b的next，也就是链表发生了变化
-                // 从头开始查找
+                // b --> n --> f
                 Node<K,V> f = n.next;
+                // b.next发生变更，重新开始查找
                 if (n != b.next)                // inconsistent read
                     break;
-                // n被删除了,删除n，这里记录了v = n.value,此时结构：b -> n -> f
+                // n被删除了,删除n，这里记录了v = n.value
                 if ((v = n.value) == null) {    // n is deleted
                     n.helpDelete(b, f);
                     break;
@@ -848,12 +848,12 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 // b被删除了
                 if (b.value == null || v == n)  // b is deleted
                     break;
-                // 找到节点，就是n，直接返回n的value
+                // 找到n.key == key，返回n.value
                 if ((c = cpr(cmp, key, n.key)) == 0) {
                     @SuppressWarnings("unchecked") V vv = (V)v;
                     return vv;
                 }
-                // 没找到节点，之前的cpr均 > 0，这里突然 < 0了，说明没有要找的节点key，最终返回null
+                // 之前的cpr均 > 0 这里 < 0，说明没有找到key，返回null
                 if (c < 0)
                     break outer;
                 // 以上情况都不是，继续往下遍历，也就是 c > 0
@@ -1110,10 +1110,9 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     n = f;
                     continue;
                 }
-                /* 执行到这里说明c为0，也就是找到了要删除的元素 */
+                /* 执行到这里说明c == 0 */
 
-                // 如果传入的参数value不为null，比较v是否等于value
-                // 如果不相等，那么还需要重新循环查找，直到找到或找完整个链表,退出循环返回null
+                // 如果传入的参数value不为null，比较b.v是否等于value,不等退出循环,没有参数指定要删除的key,value
                 if (value != null && !value.equals(v))
                     break outer;
                 // 执行到这里，开始删除节点n
@@ -1123,7 +1122,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
 
                 /*注意执行到这里：已成功修改n的value为null*/
 
-                // 操作1设置n的后继节点为一个marker节点.执行前 b -> n -> f 执行后 b -> n -> newNode -> f
+                // 操作1设置n的后继节点为一个marker节点.执行前 b -> n -> f 执行后 b -> n -> marker -> f
                 // 操作2删除n,修改n的前驱的后继为n的后继.执行前 b -> n -> f 执行后 b -> f
                 if (!n.appendMarker(f) || !b.casNext(n, f))
                     // 以上两个操作，任意一个执行失败，进入此分支
@@ -1173,6 +1172,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         HeadIndex<K,V> d;
         // e记录d.down
         HeadIndex<K,V> e;
+        // 不能低于三层
         if (h.level > 3 &&
             (d = (HeadIndex<K,V>)h.down) != null &&
             (e = (HeadIndex<K,V>)d.down) != null &&
