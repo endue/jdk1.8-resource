@@ -519,7 +519,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     casNext(f, new Node<K,V>(f));
                 // 执行到这里一定是f.value == f，说明当前节点的后继是个marker节点
                 else
-                    // 直接断开当前节点的前后连接即可
+                    // 断开当前节点与后继节点的连接
                     b.casNext(this, f.next);
             }
         }
@@ -690,38 +690,32 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      * or the base-level header if there is no such node.  Also
      * unlinks indexes to deleted nodes found along the way.  Callers
      * rely on this side-effect of clearing indices to deleted nodes.
-     * @param key the key
-     * @return a predecessor of key
-     * key是要查找的节点
-     * cmp是比较器
-     * 该函数只在index层里寻找 < 参数key的那个index节点，并返回这个index节点的node成员
-     * 如果能找到，那么就返回那个node节点，否则返回的是base层的header
-     * 在寻找的过程中遇到删除的节点，还会帮忙删除
+     * @param key the key 被查找的key
+     * @return a predecessor of key  被查找key的前驱节点或就是它自己
+     * 在寻找的过程中遇到删除的节点，会帮忙删除
      */
     private Node<K,V> findPredecessor(Object key, Comparator<? super K> cmp) {
         if (key == null)
             throw new NullPointerException(); // don't postpone errors
         for (;;) {
-            // 从head节点开始，向其右侧遍历，head节点永远执行最左侧最高的HeadIndex
+            // 从headIndex节点开始，向其右侧遍历，head节点永远是最左侧最高的HeadIndex
             for (Index<K,V> q = head, r = q.right, d;;) {
-                // r不为null，说明当前索引q有下一个索引
+                // r不为null，说明当前索引q右侧有索引
                 if (r != null) {
-                    // 获取r关联的node节点n
+                    // 获取r关联的node节点n以及节点记录的key
                     Node<K,V> n = r.node;
                     K k = n.key;
-                    // n节点被删除，其索引r也就没用了
+                    // n节点已被删除，其索引r也就没用了
                     if (n.value == null) {
-                        // 将q.right修改为r.right  q -> r -> X 修改为 q -> X
-                        // 断开q和r的关联关系
-                        if (!q.unlink(r))// 操作失败，1.r索引节点发生了变更，也就是链表发生了变更，2.q关联的node节点的value为null,也就是q索引没用了
-                                         // 需要再次从头开始遍历
-                            break;           // restart
+                        // 断开q和r的关联关系，将q.right修改为r.right,如：q -> r -> x 修改为 q -> x
+                        if (!q.unlink(r))// 操作失败，1.r索引节点不再是之前的r，也就是链表发生了变更，2.q关联的node节点的value为null,也就是q索引也应该删掉
+                            break;           // restart 退到for (;;)位置从头开始遍历
                         // 修改成功，继续获取右侧节点遍历
                         r = q.right;         // reread r
                         continue;
                     }
                     // n节点没被删除
-                    // 查找的key比当前节点的k要大，说明查找key在当前节点的右侧，继续获取右侧节点遍历
+                    // 查找的key比当前节点的k要大，说明key在当前节点的右侧，继续获取右侧节点遍历
                     if (cpr(cmp, key, k) > 0) {
                         q = r;
                         r = r.right;
@@ -729,15 +723,14 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     }
                 }
                 // 走到这里说明:
-                // 1.r为null 这一层索引走完了，需要走下一层
-                // 2.cpr操作 <= 0  查找的key比节点n的key要大，而节点n是r的right，也就是要查找的key在r(r就是q)和n两个节点之间
-                //                  那么需要从r索引的下一层的右侧第一个阶段开始继续查找
+                // 1.r为null 这一层索引查找完了，需要查找下一层
+                // 2.r不为null并且cpr操作 <= 0  查找的key比节点n的key大而节点n属于索引r，r是q索引的right。也就是说要查找的key在q和r两个索引之间
+                //                  那么需要从q索引的下一层开始继续查找
 
-                // 如果q.down == null说明遍历到了最底层
-                // 只能返回q.node
+                // 如果(d = q.down) == null说明q所在索引层已经是最底层了，只能返回q.node
                 if ((d = q.down) == null)
                     return q.node;
-                // 否则就是q.down != null，遍历下一层
+                // 否则就是q.down != null，遍历下一层，因为上一次q已经比查找的key小了，所以遍历到下一层时从q.right开始继续查找
                 q = d;
                 r = d.right;
             }
@@ -889,12 +882,12 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             throw new NullPointerException();
         Comparator<? super K> cmp = comparator;
         outer: for (;;) {
-            // 继续找到前驱节点，然后从前驱节点遍历
+            // 查找key的前驱节点b，然后从前驱节点右侧第一个阶段开始向右侧遍历
             for (Node<K,V> b = findPredecessor(key, cmp), n = b.next;;) {
                 if (n != null) {
                     Object v; int c;
                     Node<K,V> f = n.next;
-                    // b.next被修改，重新获取b以及b的next
+                    // b.next被修改，重新获取b和n
                     if (n != b.next)               // inconsistent read
                         break;
                     // n被删除了，帮忙删除节点n，然后重新获取b以及b的next
@@ -926,17 +919,17 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 }
 
                 // 1.n为null，说明遍历到了最后
-                // 2.c < 0，说明n节点的key比传入的key要大，此时只需将 b -> n 设置为 b -> z -> n即可
+                // 2.c < 0，说明n节点的key比传入的key要大，此时只需将 b -> n 设置为 b -> z -> n 即可
                 z = new Node<K,V>(key, value, n);
                 // 设置b的next为当前新增的节点z
-                // 如果操作失败说明链表被改动了，重新执行最外层循环获取节点b
+                // 如果操作失败说明链表被改动了，执行最外层for (;;)循环重新获取前驱节点b
                 if (!b.casNext(n, z))
                     break;         // restart if lost race to append to b
-                break outer;
+                break outer;// 退出最外层for (;;)循环
             }
         }
 
-        /* 如果是新建node，继续执行下面代码 */
+        /* 如果z是新建node，继续执行下面代码 */
         /*---------------------创建索引---------------------*/
 
         // 获取一个随机数rnd
@@ -952,17 +945,18 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 ++level;
             // 用来记录创建的Index索引链表的最高层节点
             Index<K,V> idx = null;
+            // 当前最大层数
             HeadIndex<K,V> h = head;
-            // 如果要建立的index层没超过最大层数
+            // 如果要建立的index层没超过当前最大层数
             if (level <= (max = h.level)) {
-                // 从低到高，层层建立index
+                // 从第一层开始，低到高，层层建立index
                 for (int i = 1; i <= level; ++i)
-                    // 注意创建Index第二个参数就是之前的idx
+                    // 注意创建Index第二个参数就是上一步的idx
                     idx = new Index<K,V>(z, idx, null);
             }
-            // 如果要建立的Index层超过最大层数
+            // 如果要建立的Index层超过当前最大层数
             else { // try to grow by one level
-                // 那么就建立到比最大层在高一层的位置
+                // 重新计算最高层数(比当前最大层在高一层)
                 level = max + 1; // hold in array and later pick the one to use
                 // 创建一个idxs数组来记录创建的从1到level的所有Index
                 @SuppressWarnings("unchecked")Index<K,V>[] idxs =
@@ -976,22 +970,20 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     // 获取旧的层数
                     int oldLevel = h.level;
                     // 如果旧的层数在这期间发生了变更，超过了当前level的层数，那么跳出for循环
-                    // 也就是不需要后续修改head的操作了，因为head高度 >= level了
+                    // 也就是不需要后续修改head的操作了，因为新level >= 刚刚新计算的level
                     if (level <= oldLevel) // lost race to add level
                         break;
-                    /* 执行到这里说明新level > oldLevel */
+                    /* 执行到这里说明刚刚新计算的level > oldLevel */
                     // newh用来记录新的head节点
                     HeadIndex<K,V> newh = h;
-                    // oldbase记录旧头结点记录的最底层Node节点的引用
+                    // oldbase记录旧头结点记录的Node节点的引用
                     Node<K,V> oldbase = h.node;
-                    // 遍历从oldLevel到新level还需要多少层
-                    // 之后建立索引，这里建立的索引是HeadIndex，而且会设置从oldLevel+1 至 level的right为idxs[]数组中对应下标位置的Index
+                    // 遍历从oldLevel到新level还需要多少层，然后新增HeadIndex
+                    // 并且会将新建的HeadIndex的right设置为idxs[j]对应的索引
                     for (int j = oldLevel+1; j <= level; ++j)
                         // HeadIndex( node, down, right, level)
                         newh = new HeadIndex<K,V>(oldbase, newh, idxs[j], j);
-                    // 最后更新头节点为newh
-                    // h指向新head
-                    // level更新为oldLevel，idx指向那个需要与它前后建立连接的Index上
+                    // 更新h指向newh、idx指向旧的头节点，level指向oldLevel
                     if (casHead(h, newh)) {
                         h = newh;
                         idx = idxs[level = oldLevel];
@@ -1002,19 +994,15 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
             /* 执行到这里，为前面创建的Index建立连接 */
             /*---------------------连接新索引---------------------*/
             // find insertion points and splice in
-            // insertionLevel记录新建的索引的层数
+            // insertionLevel记录旧索引层数
             splice: for (int insertionLevel = level;;) {
-                // 记录当前最高的层数，此时j >= insertionLevel
-                // 1.j > insertionLevel，新索引高度没超过旧索引高度，导致没有修改head，需要连接的索引高度到新level
-                // 2.j = insertionLevel，新索引高度超过旧索引高度，head被修改,需要连接的索引高度到旧level
-                // 上述情况2，超过旧level高度的索引，在修改head时都已经与head建立了连接
+                // 新索引层数
                 int j = h.level;
-                // 从head开始向右向下遍历
+                // h新的HeadIndex,t是插入节点的新建索引中最上面的Index
                 for (Index<K,V> q = h, r = q.right, t = idx;;) {
-                    // 1.链表为空
-                    // 2.创建索引操作没执行
                     if (q == null || t == null)
                         break splice;
+                    /*---a. 查找q右侧最后一个 <= 参数key的Index---*/
                     if (r != null) {
                         Node<K,V> n = r.node;
                         // compare before deletion check avoids needing recheck
@@ -1030,21 +1018,14 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                             r = q.right;
                             continue;
                         }
-                        // 如果当前key比节点n的key要大，那么说明参数key的插入点在n的右侧，继续右移
+                        // 如果参数key比r大，说明参数key的插入点在r的右侧，继续右移更新q为r,直到找到q > key > r的位置
                         if (c > 0) {
                             q = r;
                             r = r.right;
                             continue;
                         }
                     }
-
-                    // 1. r == null
-                    // 2. c <= 0
-                    // 这段代码一开始可能是不执行的
-                    // 情况1，这里一开始不执行，那么就需要执行第二个if，来降层操作
-                    // 情况2，这里开始就执行了
-                    // 无论情况1还是2，都是在找某个索引高度，从这个高度开始没有和新建的索引建立连接，
-                    // 然后开始建立连接，执行降层继续查找
+                    /*---c. j == 旧level时，新建索引连接---*/
                     if (j == insertionLevel) {
                         // 设置 q -> r 变为 q -> t -> r
                         if (!q.link(r, t))
@@ -1061,7 +1042,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                         if (--insertionLevel == 0)
                             break splice;
                     }
-                    // 层层下降
+                    /*---b. 当j >= 旧level并且小于新level时，修改t指向的新建立的索引---*/
                     if (--j >= insertionLevel && j < level)
                         t = t.down;
                     q = q.down;
