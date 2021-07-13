@@ -724,13 +724,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     }
                 }
                 // 走到这里说明:
-                // 1.r为null该层索引未查到key,获取r的left的down节点d,也就是r的下一层继续比较
-                // 2.r不为null但cpr(..) <= 0,此时的key介于q和r之间，获取r的left的down节点d,也就是r的下一层继续比较
+                // 1.r为null该层索引未查到key,获取r的left节点q的down节点d,退到下一层
+                // 2.r不为null但cpr(..) <= 0,此时的key介于q和r之间，获取r的left节点q的down节点d,退到下一层
 
-                // 如果d == null说明r所在索引层已经是最底层了，只能返回q.node,此时的q <= key
+                // 如果d == null说明r所在索引层已经是最底层了，只能返回q.node,此时的q.k <= key
                 if ((d = q.down) == null)
                     return q.node;
-                // 否则d != null，遍历下一层，因为上一层q < key，到下一层时从q.right开始继续查找
+                // 否则d != null，因为上一层q > key，到下一层时从q.right开始继续查找
                 q = d;
                 r = d.right;
             }
@@ -876,7 +876,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
      */
     private V doPut(K key, V value, boolean onlyIfAbsent) {
         /*---------------------插入元素---------------------*/
-        // 如果是新增node，z记录新增node的引用
+        // 如果针对参数key,value不存在，会新增，则z就是那个新增的节点
         Node<K,V> z;             // added node
         if (key == null)
             throw new NullPointerException();
@@ -890,7 +890,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     // b.next被修改，重新获取b和n
                     if (n != b.next)               // inconsistent read
                         break;
-                    // n被删除了，帮忙删除节点n，然后重新获取b以及b的next
+                    // n被删除了，n进入删除的第一步，帮忙删除节点n，然后重新获取b以及b的next
                     if ((v = n.value) == null) {   // n is deleted
                         n.helpDelete(b, f);
                         break;
@@ -937,13 +937,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         // 0x80000001 = 10000000 00000000 00000000 00000001
         // 如果rnd的高位和底位都为0
         if ((rnd & 0x80000001) == 0) { // test highest and lowest bits
-            // level记录新的level
-            // max记录旧的level
+            // level记录新的level层数
+            // max记录旧的level层数
             int level = 1, max;
             // 计算rnd中1的个数，每有一个1，对应的level就+1
             while (((rnd >>>= 1) & 1) != 0)
                 ++level;
-            // 用来记录创建的Index索引链表的最高层节点
+            // 用来指向新创建的Index索引链表的最高层节点
             Index<K,V> idx = null;
             // 当前最大层数
             HeadIndex<K,V> h = head;
