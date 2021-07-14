@@ -978,8 +978,8 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     HeadIndex<K,V> newh = h;
                     // oldbase记录旧头结点记录的Node节点的引用
                     Node<K,V> oldbase = h.node;
-                    // 遍历从oldLevel到新level还需要多少层，然后新增HeadIndex
-                    // 并且会将新建的HeadIndex的right设置为idxs[j]对应的索引
+                    // 从oldLevel+1 到新level这段距离新增HeadIndex并与旧的HeadIndex建立连接
+                    // 最后还会将新建的HeadIndex的right设置为idxs[j]对应的索引
                     for (int j = oldLevel+1; j <= level; ++j)
                         // HeadIndex( node, down, right, level)
                         newh = new HeadIndex<K,V>(oldbase, newh, idxs[j], j);
@@ -1087,7 +1087,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                     break outer;
                 Node<K,V> f = n.next;
 
-                /* 此时结果：b -> n -> f */
+                // 此时：b -> n -> f
 
                 // n现在不是b.next节点，链表发生了变更，需要重新开始
                 if (n != b.next)                    // inconsistent read
@@ -1112,7 +1112,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 }
                 /* 执行到这里说明c == 0 */
 
-                // 如果传入的参数value不为null，比较b.v是否等于value,不等退出循环,没有参数指定要删除的key,value
+                // 如果传入的参数value不为null，比较b.v是否等于value,不等退出循环,没有查找到指定的key,value
                 if (value != null && !value.equals(v))
                     break outer;
                 // 执行到这里，开始删除节点n
@@ -1122,7 +1122,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
 
                 /*注意执行到这里：已成功修改n的value为null*/
 
-                // 操作1设置n的后继节点为一个marker节点.执行前 b -> n -> f 执行后 b -> n -> marker -> f
+                // 操作1设置n的后继节点为一个marker节点.执行前 b -> n -> f 执行后 b -> n -> marker -> f. marker节点的value为自身
                 // 操作2删除n,修改n的前驱的后继为n的后继.执行前 b -> n -> f 执行后 b -> f
                 if (!n.appendMarker(f) || !b.casNext(n, f))
                     // 以上两个操作，任意一个执行失败，进入此分支
@@ -1376,6 +1376,7 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
     private static final int GT = 0; // Actually checked as !LT
 
     /**
+     * 查找与key存在rel关系的最近节点
      * Utility for ceiling, floor, lower, higher methods.
      * @param key the key
      * @param rel the relation -- OR'ed combination of EQ, LT, GT
@@ -1385,11 +1386,13 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
         if (key == null)
             throw new NullPointerException();
         for (;;) {
+            // 从key的前驱节点开始
             for (Node<K,V> b = findPredecessor(key, cmp), n = b.next;;) {
                 Object v;
                 if (n == null)
                     return ((rel & LT) == 0 || b.isBaseHeader()) ? null : b;
                 Node<K,V> f = n.next;
+                // b --> n --> f
                 if (n != b.next)                  // inconsistent read
                     break;
                 if ((v = n.value) == null) {      // n is deleted
@@ -1398,10 +1401,14 @@ public class ConcurrentSkipListMap<K,V> extends AbstractMap<K,V>
                 }
                 if (b.value == null || v == n)      // b is deleted
                     break;
+                // 比较key和n.key的大小
                 int c = cpr(cmp, key, n.key);
+                // 1. key == n.key && rel包含EQ
+                // 2. key < n.key && rel不包含LT
                 if ((c == 0 && (rel & EQ) != 0) ||
                     (c <  0 && (rel & LT) == 0))
                     return n;
+                // key ≤ n.key && rel包含LT
                 if ( c <= 0 && (rel & LT) != 0)
                     return b.isBaseHeader() ? null : b;
                 b = n;
