@@ -487,9 +487,8 @@ public class ThreadLocal<T> {
             // 那么直接返回该值
             if (e != null && e.get() == key)
                 return e;
-            // 如果为null，那么可能是发生了hash冲突
-            // 1.当前ThreadLocal是有对应值的，但是由于hash冲突，在tabel数组的下标并不是i
-            // 2.当前ThreadLocal就是没有对应值
+            // 1.e != null && e.get() != key 当前ThreadLocal可能是有对应值的，但是由于hash冲突，在tabel数组的下标并不是i
+            // 2.e == null 当前ThreadLocal对应的下标位置没值
             else
                 return getEntryAfterMiss(key, i, e);
         }
@@ -507,7 +506,7 @@ public class ThreadLocal<T> {
         private Entry getEntryAfterMiss(ThreadLocal<?> key, int i, Entry e) {
             Entry[] tab = table;
             int len = tab.length;
-            // 循环
+            // 从i的后续下标开始遍历继续查找
             while (e != null) {
                 ThreadLocal<?> k = e.get();
                 // 每次循环后，获取对应位置i的entry的ThreadLocal，如果和参数key相等则直接返回对应Entry
