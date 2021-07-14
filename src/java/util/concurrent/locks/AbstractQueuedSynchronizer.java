@@ -1064,19 +1064,27 @@ public abstract class AbstractQueuedSynchronizer
             throws InterruptedException {
         if (nanosTimeout <= 0L)
             return false;
+        // 获取最终过期时间
         final long deadline = System.nanoTime() + nanosTimeout;
+        // 将当前线程封装为Node对象添加到队列当中
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
+            // 死循环直到获取到锁或者超时
             for (;;) {
+                // 获取前驱节点
                 final Node p = node.predecessor();
+                // 前驱节点为head并且获取锁成功
                 if (p == head && tryAcquire(arg)) {
+                    // 修改头节点并设置p.next & .thread & .prev为null
                     setHead(node);
                     p.next = null; // help GC
                     failed = false;
                     return true;
                 }
+                // 获取锁失败，计算剩余时间
                 nanosTimeout = deadline - System.nanoTime();
+                // 超时未获取到锁
                 if (nanosTimeout <= 0L)
                     return false;
                 if (shouldParkAfterFailedAcquire(p, node) &&
