@@ -71,8 +71,6 @@ import java.util.function.Supplier;
  * ThreadLocal看类名就是线程本地变量的意思。从使用上来说，如果定义了一个ThreadLocal，
  * 那么各个线程针对这个ThreadLocal进行get/set都是线程独立的，也就是说，是线程隔离的本地变量。
  * 从实现上来说，每个线程在运行过程中都可以通过Thread.currentThread()获得与之对应的Thread对象，
- * 而每个Thread对象都有一个ThreadLocalMap类型的成员，ThreadLocalMap是一种hashmap，它以ThreadLocal作为key。
- * 所以，通过Thread对象和ThreadLocal对象二者，才可以唯一确定到一个value上去。线程隔离的关键，正是因为这种对应关系用到了Thread对象
  *
  * @author  Josh Bloch and Doug Lea
  * @since   1.2
@@ -549,9 +547,7 @@ public class ThreadLocal<T> {
             // 获取key对应的数组下标
             int i = key.threadLocalHashCode & (len-1);
             // 从i的下一个位置开始遍历获取对应的entry，如果该位置entry不为null，判断执行两个操作
-            for (Entry e = tab[i];
-                 e != null;
-                 e = tab[i = nextIndex(i, len)]) {
+            for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
                 ThreadLocal<?> k = e.get();
                 // 如果位置的ThreadLocal和参数传进来的ThreadLocal一致，替换掉旧值
                 if (k == key) {
@@ -559,7 +555,7 @@ public class ThreadLocal<T> {
                     return;
                 }
                 // 如果该位置为对应的ThreadLocal为null，那么需要清理一下
-                // 并把参数key、value保存到tabel中去
+                // 并把参数key、value保存到该位置
                 if (k == null) {
                     replaceStaleEntry(key, value, i);
                     return;
@@ -614,6 +610,7 @@ public class ThreadLocal<T> {
          * @param  value the value to be associated with key
          * @param  staleSlot index of the first stale entry encountered while
          *         searching for key.
+         * 替换stale entry
          */
         private void replaceStaleEntry(ThreadLocal<?> key, Object value,
                                        int staleSlot) {
@@ -625,22 +622,17 @@ public class ThreadLocal<T> {
             // We clean out whole runs at a time to avoid continual
             // incremental rehashing due to garbage collector freeing
             // up refs in bunches (i.e., whenever the collector runs).
-            // 标记要擦除的起始位置
+            // slotToExpunge记录清理stale entry的起始下标
             int slotToExpunge = staleSlot;
-            // 从staleSlot的前一个位置开始向前查找，直到找到位置i，该位置entry为null，此时slotToExpunge = 当前i + 1
-            // 也就是从staleSlot的前一个位置开始，一直到i+1的位置，所有位置的entry都不为null，称为staleSlot的前段
-            // 此时slotToExpunge记录的是前段中最后一个stale entry，如果没有slotToExpunge还是staleSlot
+            /// 查找staleSlot前面最后一个stale Entry的下标，如果没有找到stale Entry时slotToExpunge不变
             for (int i = prevIndex(staleSlot, len); (e = tab[i]) != null; i = prevIndex(i, len))
                 if (e.get() == null)
                     slotToExpunge = i;
 
             // Find either the key or trailing null slot of run, whichever
             // occurs first
-            // 从staleSlot的后一个位置开始向后查找，直到找到位置i，该位置entry为null，然后退出循环
-            // 也就是从staleSlot的后一个位置开始，一直到i-1的位置，所有位置的entry都不为null，称为staleSlot的后段
-            for (int i = nextIndex(staleSlot, len);
-                 (e = tab[i]) != null;
-                 i = nextIndex(i, len)) {
+            // 查找staleSlot后面stale Entry的下标
+            for (int i = nextIndex(staleSlot, len); (e = tab[i]) != null; i = nextIndex(i, len)) {
                 ThreadLocal<?> k = e.get();
 
                 // If we find key, then we need to swap it
@@ -649,12 +641,11 @@ public class ThreadLocal<T> {
                 // encountered above it, can then be sent to expungeStaleEntry
                 // to remove or rehash all of the other entries in run.
 
-                // 在找staleSlot的后段中找到了对应的ThreadLocal，位置为下标i
+                // 查找过程中遇到了参数ThreadLocal，此时staleSlot < i
                 if (k == key) {
-                    // 更新旧值
                     e.value = value;
-                    // 交换位置i和staleSlot的entry
-                    // 位置i为由于之前放入冲突，导致往后移动后的下标，此时需要将该值往前方，交换位置即可(这里思考staleSlot的含义得出此结论)
+                    // 此时由于staleSlot < i
+                    // 将stale entry往后移，移动后i下标为stale entry
                     tab[i] = tab[staleSlot];
                     tab[staleSlot] = e;
 
@@ -665,7 +656,7 @@ public class ThreadLocal<T> {
                     //   此时就不需要更新slotToExpunge，因为后续清理操作是从slotToExpunge往后查找
                     if (slotToExpunge == staleSlot)
                         slotToExpunge = i;
-                    // 清理操作
+                    // 从slotToExpunge位置开始清理
                     cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
                     return;
                 }
@@ -673,9 +664,9 @@ public class ThreadLocal<T> {
                 // If we didn't find stale entry on backward scan, the
                 // first stale entry seen while scanning for key is the
                 // first still present in the run.
-                // 如果i位置对于的ThreadLocal为null，并且staleSlot的前段没有stale entry
-                // 那么此时更新slotToExpunge = i，后续如果再有k为null的entry，slotToExpunge就不会更新了
-                // 所以综上所述lotToExpunge要么记录staleSlot前段中最终的一个stale entry，要么记录后的中最早的一个stale entry
+                // 从staleSlot后面遍历过程中遇到i下标的key为null说明是个stale entry并且staleSlot前面没有stale entry,那么清理从i位置开始
+                // 后续如果再有k为null的stale entry，slotToExpunge就不会更新了
+                // 所以综上所述lotToExpunge要么记录staleSlot前段中最后一个stale entry，要么记录后段中第一个stale entry
                 if (k == null && slotToExpunge == staleSlot)
                     slotToExpunge = i;
             }
@@ -688,7 +679,7 @@ public class ThreadLocal<T> {
             tab[staleSlot] = new Entry(key, value);
 
             // If there are any other stale entries in run, expunge them
-            // slotToExpunge != staleSlot说明staleSlot的前段没有stale entry，但是后段有，执行清理操作
+            // slotToExpunge == staleSlot说明staleSlot的前后段中都没有stale entry,反之则有执行清理操作
             if (slotToExpunge != staleSlot)
                 cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
         }
@@ -719,13 +710,11 @@ public class ThreadLocal<T> {
             // Rehash until we encounter null
             Entry e;
             int i;
-            // 遍历table，从staleSlot下一个位置开始
+            // 遍历table，从staleSlot下一个位置开始,遇到null时停止
             // i 记录staleSlot下一个位置
             // e 记录i位置的entry
             // i 每次递增，够len后变为0
-            for (i = nextIndex(staleSlot, len);
-                 (e = tab[i]) != null;
-                 i = nextIndex(i, len)) {
+            for (i = nextIndex(staleSlot, len); (e = tab[i]) != null; i = nextIndex(i, len)) {
                 ThreadLocal<?> k = e.get();
                 // 如果i位置的key为null，继续清空该位置
                 if (k == null) {
@@ -751,7 +740,7 @@ public class ThreadLocal<T> {
                     }
                 }
             }
-            // 返回旧的下标
+
             return i;
         }
 
