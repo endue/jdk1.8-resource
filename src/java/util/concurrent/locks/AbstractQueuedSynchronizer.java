@@ -878,16 +878,9 @@ public abstract class AbstractQueuedSynchronizer
             // so it will get one. Otherwise wake it up to propagate.
             // 记录node的前驱节点waitStatus
             int ws;
-            // 1.node的前驱节点不是头结点
-            //      node的pred如果是头节点，那么由于node节点取消了，所以应该唤醒node的后续节点，此时走else逻辑就可以,被唤醒后的node后继节点
-            //      会尝试获取锁，然后更新头节点
-            // 2.判断node的前驱节点的状态
-            //   2.1 (ws = pred.waitStatus) == Node.SIGNAL 也就是node的前驱节点状态是SIGNAL
-            //   2.2  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))
-            //      2.2.1 ws <= 说明node的前驱节点状态是SIGNAL(独占锁模式)、CONDITION(等待队列模式)、PROPAGATE(共享锁模式)、0(新添加节点)
-            //      2.2.2 设置前驱节点状态为SIGNAL
-            // 3.前驱节点包含某个线程
-            // 最终更新节点A的next为node.next
+            // 如果node既不是tail，又不是head的后继节点
+            // 则将node的前继节点的waitStatus置为SIGNAL
+            // 并使pred的后继节点指向node的后继节点
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
@@ -896,6 +889,7 @@ public abstract class AbstractQueuedSynchronizer
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
+                // 如果node是head的后继节点，则直接唤醒node的后继节点
                 unparkSuccessor(node);
             }
             // 此时当前节点的next指向自己
@@ -923,7 +917,7 @@ public abstract class AbstractQueuedSynchronizer
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
         // pred为node的前一个节点(以线程B为例，它的前一个节点为空node，会走到else里面，然后设置头结点为SIGNAL，然后返回false)
 
-        // 获取pred的状态，如果是SIGNAL返回true
+        // 前驱节点状态为SIGNAL直接返回true表示park住当前线程
         int ws = pred.waitStatus;
         if (ws == Node.SIGNAL)
             /*
@@ -992,7 +986,7 @@ public abstract class AbstractQueuedSynchronizer
         try {
             boolean interrupted = false;
             for (;;) {
-                // 获取node的前一个节点（这里可能会抛出空指针一次）
+                // 获取node的前一个节点（这里可能会抛出空指针）
                 final Node p = node.predecessor();
                 // 如果前一个节点是头节点，则尝试获取锁
                 if (p == head && tryAcquire(arg)) {
