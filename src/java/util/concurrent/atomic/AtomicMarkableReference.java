@@ -102,6 +102,15 @@ public class AtomicMarkableReference<V> {
      * @param markHolder an array of size of at least one. On return,
      * {@code markholder[0]} will hold the value of the mark.
      * @return the current value of the reference
+     * 返回引用和标记的当前值,标记记录到参数markHolder数组下标0中，value直接返回
+     *      public static void main(String[] args) throws InterruptedException {
+     *         AtomicMarkableReference amr = new AtomicMarkableReference("1", true);
+     *         boolean[] b = new boolean[1];
+     *         Object o = amr.get(b);
+     *         System.out.println(o);
+     *         System.out.println(b[0]);
+     *     }
+     *     结果：1    true
      */
     public V get(boolean[] markHolder) {
         Pair<V> pair = this.pair;
@@ -170,7 +179,7 @@ public class AtomicMarkableReference<V> {
      */
     public void set(V newReference, boolean newMark) {
         Pair<V> current = pair;
-        // 旧数据不等于新数据 或 旧标记不等于新标记
+        // 旧数据不等于新数据 或 旧标记不等于新标记，才去重新生成paid
         if (newReference != current.reference || newMark != current.mark)
             this.pair = Pair.of(newReference, newMark);
     }
