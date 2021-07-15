@@ -730,7 +730,7 @@ public abstract class AbstractQueuedSynchronizer
                 // 如果head状态是SIGNAL
                 if (ws == Node.SIGNAL) {
                     // cas操作修改head的waitStatus=0,如果成功，执行unparkSuccessor(h)，唤醒head的后继
-                    // cas操作失败，说明head的waitStatus被修改为了0,说明释放共享锁出现了并发
+                    // cas操作失败，说明head的waitStatus被修改为了0,重新获取头结点，然后唤醒其后继节点
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
                         continue;            // loop to recheck cases
                     unparkSuccessor(h);
@@ -1843,9 +1843,9 @@ public abstract class AbstractQueuedSynchronizer
          * unless the CAS failed (which is unlikely), it will be
          * there, so we hardly ever traverse much.
          */
-        // 执行到这里说明 node.waitStatus != Node.CONDITION && node.prev != null 但是此时可能node.next == null 也可能 node.next != null
-        // 从AQS队列中查找当前node节点,某个节点A调用await后，又恰巧被其他线程M唤醒，唤醒后M会在transferForSignal中调用enq(node)把A入等待队列，但是enq存在并发风险也就是CAS失败的可能
-        // 所以需要遍历AQS队列，找到返回true，找不到返回false，注意一个unpark,可以抵消过去的一个park或者将来的一个park
+        // 执行到这里说明 node.waitStatus != Node.CONDITION && node.prev != null 但是此时node.next == null
+        // 从AQS队列中查找当前node节点,某个节点A调用await后，又恰巧被其他线程M唤醒，唤醒后M会在transferForSignal()方法中调用enq(node)把A入AQS队列，
+        // 但是enq存在并发风险也就是CAS失败的可能，所以需要遍历AQS队列，找到返回true，找不到返回false，注意一个unpark,可以抵消过去的一个park或者将来的一个park
         return findNodeFromTail(node);
     }
 
@@ -2143,7 +2143,7 @@ public abstract class AbstractQueuedSynchronizer
         // 断开condition队列中node.waitStatus非CONDITION的节点
         private void unlinkCancelledWaiters() {
             Node t = firstWaiter;
-            Node trail = null;// 指向每次遍历时当前等待队列从头到尾中最新的状态为CONDITION的节点
+            Node trail = null;// 用来保存遍历过程中，最近一次发现的状态为CONDITION的节点
             while (t != null) {
                 Node next = t.nextWaiter;
                 // 如果t的状态不为CONDITION则剔除t修改nextWaiter为null，这样会导致等待队列对应的单向链表断开，解决办法如下：

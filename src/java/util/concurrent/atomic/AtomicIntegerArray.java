@@ -45,6 +45,11 @@ import sun.misc.Unsafe;
  * variables.
  * @since 1.5
  * @author Doug Lea
+ *
+ * Arrays和Java别的对象一样，都有一个对象头，它是存储在实际的数据前面的。这个头的长度可以通过unsafe.arrayBaseOffset(T[].class)方法来获取到，
+ * 这里T是数组元素的类型。数组元素的大小可以通过unsafe.arrayIndexScale(T[].class) 方法获取到。这也就是说要访问类型为T的第N个元素的话，你的偏移
+ * 量offset应该是arrayOffset + N * arrayScale
+ *
  * 基于反射获取Unsafe类
  *     public static Unsafe getUnsafeInstance() throws Exception{
  *         Field unsafeStaticField = Unsafe.class.getDeclaredField("theUnsafe");
@@ -56,7 +61,7 @@ public class AtomicIntegerArray implements java.io.Serializable {
     private static final long serialVersionUID = 2862133569453604235L;
 
     private static final Unsafe unsafe = Unsafe.getUnsafe();
-    // 返回当前数组第一个元素地址相对于数组起始地址的偏移值
+    // 获取int[]数组对象头的长度
     private static final int base = unsafe.arrayBaseOffset(int[].class);
     private static final int shift;
     // 被final修改，保证不可变，但内部元素可变
@@ -72,6 +77,7 @@ public class AtomicIntegerArray implements java.io.Serializable {
         // 这里scale必须保证为2的n次幂，Integer.numberOfLeadingZeros(scale)返回scale前面0的个数num，之后31在减去num
         // 就是scale值对应的二进制1所在的位置，所以也就是 scale = 2的shift次幂
         // (int类型占32位，不用32减是因为4的二进制为100，也就是2的2次幂，这里提前抛弃一位)
+        // 4 = 00000000 00000000 00000000 00000100，所以Integer.numberOfLeadingZeros(scale)=29，最后shift = 31-29
         shift = 31 - Integer.numberOfLeadingZeros(scale);
     }
 
@@ -83,7 +89,7 @@ public class AtomicIntegerArray implements java.io.Serializable {
     }
     // 传入元素索引位置，返回这个元素在数组中的起始地址
     private static long byteOffset(int i) {
-        // 由static代码块可知 i << shift = i * 2的shift次幂 = i * scale + base = 索引位置 * 类型大小 + 偏移量
+        // 由static代码块可知 i << shift + base = i * 2的shift次幂 + base = i * scale + base = 索引位置 * 类型大小 + 偏移量
         return ((long) i << shift) + base;
     }
 
