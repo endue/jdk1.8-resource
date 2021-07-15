@@ -192,8 +192,9 @@ public class AtomicStampedReference<V> {
      * @param expectedReference the expected value of the reference
      * @param newStamp the new value for the stamp
      * @return {@code true} if successful
+     * 更新版本号
+     * 首先要保证reference为发生改变，之后(如果已记录的版本号和参数一致 或 cas修改pair成功) 返回true
      */
-    // 更新版本号
     public boolean attemptStamp(V expectedReference, int newStamp) {
         Pair<V> current = pair;
         return
