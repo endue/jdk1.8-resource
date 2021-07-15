@@ -227,7 +227,7 @@ abstract class Striped64 extends Number {
                               boolean wasUncontended) {
         // 局部遍历记录当前线程的探针值
         int h;
-        // 如果当前探针值位吃时候则为当前线程初始化一个ThreadLocalRandom
+        // 如果当前探针值未初始化则为当前线程初始化一个ThreadLocalRandom
         if ((h = getProbe()) == 0) {
             ThreadLocalRandom.current(); // force initialization
             h = getProbe();
@@ -240,10 +240,10 @@ abstract class Striped64 extends Number {
             // n 记录cells的长度
             // v 记录当前线程所属的cell的value
             Cell[] as; Cell a; int n; long v;
-            // cells已初始化
+            // cells数组已初始化
             if ((as = cells) != null && (n = as.length) > 0) {
-                // 1.计算当前线程对应的cell的下标并获取当前线程所属的cell
-                // 2.判断cell是否为null
+                // 1.计算当前线程对应的cells数组的下标并获取所属的Cell
+                // 2.判断Cell是否为null
                 if ((a = as[(n - 1) & h]) == null) {
                     /*如果当前线程的cell为null，则需要初始化*/
 
@@ -319,7 +319,8 @@ abstract class Striped64 extends Number {
                 // 再次获取探针
                 h = advanceProbe(h);
             }
-            /* 执行到这里，说明counterCells数组为null */
+
+            /*------ 执行到这里，说明cells数组为null ------*/
 
             // CAS修改cellsBusy
             else if (cellsBusy == 0 && cells == as && casCellsBusy()) {
@@ -338,7 +339,7 @@ abstract class Striped64 extends Number {
                 if (init)
                     break;
             }
-            /* 执行到这里，说明counterCells数组为null 并且没有成功修改初始化的标识符 */
+            /* 执行到这里，说明cells数组为null 并且没有成功修改初始化的标识符 */
 
             // 执行修改base的值
             else if (casBase(v = base, ((fn == null) ? v + x :

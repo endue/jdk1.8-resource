@@ -81,7 +81,7 @@ public class LongAdder extends Striped64 implements Serializable {
      *
      * @param x the value to add
      */
-    // 增加或低价都会调用该方法
+    // 增加或递减都会调用该方法
     public void add(long x) {
         Cell[] as; long b, v; int m; Cell a;
         // 1.cells不为null，优先操作cells
