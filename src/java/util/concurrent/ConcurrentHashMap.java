@@ -587,6 +587,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /**
      * The maximum number of threads that can help resize.
      * Must fit in 32 - RESIZE_STAMP_BITS bits.
+     * 可以帮忙扩容的线程数65535
      */
     private static final int MAX_RESIZERS = (1 << (32 - RESIZE_STAMP_BITS)) - 1;
 
@@ -2319,7 +2320,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         // sc 局部变量记录sizeCtl
         Node<K,V>[] tab; int sc;
         while ((tab = table) == null || tab.length == 0) {
-            // sizeCtl < 0 让出CPU交给
+            // sizeCtl < 0 让出CPU权限
             // 详见sizeCtl含义
             if ((sc = sizeCtl) < 0)
                 Thread.yield(); // lost initialization race; just spin
@@ -2332,14 +2333,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                         // sc大于0,取sc的值，否则默认取16
                         int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
                         @SuppressWarnings("unchecked")
-                        // 创建一个node数组，大小为n
+                        // 创建一个node数组，大小为n,也就是上面的sc或者DEFAULT_CAPACITY
                         Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
                         table = tab = nt;
                         // n - n/4 = n * 0.75
+                        // 计算扩容的阈值
                         sc = n - (n >>> 2);
                     }
                 } finally {
-                    // 赋值sizeCtl
+                    // 扩容阈值赋值sizeCtl
                     sizeCtl = sc;
                 }
                 break;
@@ -2392,8 +2394,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                   U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
                 // CAS修改baseCount失败或CAS修改当前线程对应位置的counterCell失败
                 /**
-                 * 它线程能走到full方法里，一定是出现了并发竞争并且当前线程在竞争过程中失败了。
-                 * 所以进入full，而竞争成功的线程会去判断是否扩容，竞争失败的只需增加map中元素数量即可,
+                 * 它线程能走到fullAddCount方法里，一定是出现了并发竞争并且当前线程在竞争过程中失败了。
+                 * 所以进入fullAddCount，而竞争成功的线程会去判断是否扩容，竞争失败的只需增加map中元素数量即可,
                  * 这里也说明了为什么不使用LongAdder，而是把LongAdder代码重写一遍
                  */
                 fullAddCount(x, uncontended);
