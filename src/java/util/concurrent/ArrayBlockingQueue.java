@@ -198,8 +198,7 @@ public class ArrayBlockingQueue<E> extends AbstractQueue<E>
         // 3 将takeIndex位置置空
         // 4 takeIndex++，之后takeIndex大小为数组长度，那么下次取数据的位置应该为数组的开始位置
         // 5 记录数据总量 - 1
-        // 6 todo 出队这里调用itrs？
-        // 7 唤醒入队的线程
+        // 6 唤醒入队的线程
         final Object[] items = this.items;
         @SuppressWarnings("unchecked")
         E x = (E) items[takeIndex];
