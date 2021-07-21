@@ -346,7 +346,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
         // t局部变量记录tail
         for (Node<E> t = tail, p = t;;) {
             Node<E> q = p.next;
-            // p的next为null,说明p此时是last node
+            // p的next为null,说明p此时是last node但不一定是tail节点
             if (q == null) {
                 // p is last node
                 // 尝试CAS操作更新p的next为新节点
