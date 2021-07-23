@@ -340,43 +340,31 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
     // offer
     public boolean offer(E e) {
         checkNotNull(e);
-        // 封装为一个新元素
+        // 待插入节点
         final Node<E> newNode = new Node<E>(e);
-        // 从尾结点开始遍历
-        // t局部变量记录tail
+        // 从尾结点开始遍历 tail,t,p --> q
         for (Node<E> t = tail, p = t;;) {
             Node<E> q = p.next;
-            // p的next为null,说明p此时是last node但不一定是tail节点
-            if (q == null) {
+            if (q == null) {// 成立,说明p此时是last node但不一定是tail节点
                 // p is last node
-                // 尝试CAS操作更新p的next为新节点
+                // CAS更新p的next为待插入节点
                 if (p.casNext(null, newNode)) {
                     // Successful CAS is the linearization point
                     // for e to become an element of this queue,
                     // and for newNode to become "live".
-                    // p节点是当前最新的last node，如果p和tail节点不相等
-                    // 那么两者之间至少有一个Node节点再加上p后面添加的新元素，此时差值最少为2
-                    // 这时更新tail节点
                     if (p != t) // hop two nodes at a time
-                        // 这个CAS操作是运行失败的
                         casTail(t, newNode);  // Failure is OK.
-                    // 元素添加成功，返回true
                     return true;
                 }
                 // Lost CAS race to another thread; re-read next
             }
-            // 当前节点p被删除了
-            // p此时是 recycled node
+            // p节点被删除,此时是 recycled node
             else if (p == q)
                 // We have fallen off list.  If tail is unchanged, it
                 // will also be off-list, in which case we need to
                 // jump to head, from which all live nodes are always
                 // reachable.  Else the new tail is a better bet.
-                // 判断旧tail是否等于新tail
-                //  true：更新p为最新的tail
-                //  false: 更新p为头节点
                 p = (t != (t = tail)) ? t : head;
-            // p不是last node也不是recycled node
             else
                 // 场景分析：
                 //   3.1 p != t && t != 最新tail ，p和t都被设置为最新的tail
@@ -415,7 +403,7 @@ public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
                 //  如果为q == null，那么说明当前队列遍历结束，没有后继节点可处理，此时的head可能(这里用可能是因为如果两个线程并发出队执行出队
                 //  而集合里只有一个元素，由于第一个执行出队的线程并不会更新head，所以此时最后一个线程需要更新一下)已经不是最新的head节点了，
                 //  那么更新head为最新的head，
-                //2. p的item == null，也是p被其他线程先出队了，判断是否还有后续节点可处理，如果没有那么可能需要更新head节点
+                //2. p.item == null，也是p被其他线程先出队了，判断是否还有后续节点可处理，如果没有那么可能需要更新head节点
                 else if ((q = p.next) == null) {
                     updateHead(h, p);
                     return null;
