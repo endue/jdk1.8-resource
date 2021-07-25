@@ -306,8 +306,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * on contention (which we expect to be rare). Call only while
      * holding lock.
      *
-     * @param array the heap array
-     * @param oldCap the length of the array
+     * @param array the heap array 数组
+     * @param oldCap the length of the array 数组的长度
      */
     // 扩容
     private void tryGrow(Object[] array, int oldCap) {
@@ -373,7 +373,7 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
             E result = (E) array[0];
             // 获取堆的最后一个元素
             E x = (E) array[n];
-            // 堆的最后一个元素所在位置置为null
+            // 设置堆的最后一个元素所在位置为null
             array[n] = null;
             Comparator<? super E> cmp = comparator;
             // 将之前记录的堆的最后一个元素放到堆顶，然后执行下沉操作
@@ -397,20 +397,20 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * These methods are static, with heap state as arguments, to
      * simplify use in light of possible comparator exceptions.
      *
-     * @param k the position to fill 插入元素的插入位置
-     * @param x the item to insert 插入的元素
+     * @param k the position to fill 待插入位置
+     * @param x the item to insert 待插入元素
      * @param array the heap array 数组
      */
     // 上浮操作
     private static <T> void siftUpComparable(int k, T x, Object[] array) {
         Comparable<? super T> key = (Comparable<? super T>) x;
         while (k > 0) {
-            // 获取插入位置的父节点索引
+            // 获取待插入位置的父节点位置
             int parent = (k - 1) >>> 1;
-            // 获取插入位置的父节点的值
+            // 获取待插入位置的父节点的值
             Object e = array[parent];
-            // 如果当前节点 >= 父节点的值
-            // 那么只需要将当前元素插入k位置即可，不需要循环
+            // 如果待插入元素 >= 父节点的值，退出循环将当前待插入元素插入待插入位置k即可
+            // 如果待插入元素 < 父节点的值，将父节点降下来插入待插入位置，待插入元素插入位置改为父节点之前的位置，之后继续循环
             if (key.compareTo((T) e) >= 0)
                 break;
             // 如果当前节点 < 父节点的值
@@ -440,8 +440,8 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
      * demoting x down the tree repeatedly until it is less than or
      * equal to its children or is a leaf.
      *
-     * @param k the position to fill 插入元素的位置
-     * @param x the item to insert 插入的元素
+     * @param k the position to fill 待插入位置
+     * @param x the item to insert 待插入元素
      * @param array the heap array 数组
      * @param n heap size 数组长度
      */
@@ -723,14 +723,14 @@ public class PriorityBlockingQueue<E> extends AbstractQueue<E>
             E moved = (E) array[n];
             array[n] = null;
             Comparator<? super E> cmp = comparator;
-            // 将之前记录的堆中最后一个元素放入i的位置，然后执行下沉操作
+            // 将之前记录的堆中最后一个元素补到i的位置，然后执行下沉操作
             if (cmp == null)
                 siftDownComparable(i, moved, array, n);
             else
                 siftDownUsingComparator(i, moved, array, n, cmp);
             // 如果下面if条件成立，那么说明moved元素并没有下沉，而是直接放在了i的位置：
             // 比如：i位置之前就是叶子节点 或 moved元素比删除元素的叶子节点都小
-            // 此时需要执行一下上浮操作
+            // 此时判断是否需要上浮操作
             if (array[i] == moved) {
                 if (cmp == null)
                     siftUpComparable(i, moved, array);
