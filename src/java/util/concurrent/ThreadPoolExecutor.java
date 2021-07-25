@@ -1527,8 +1527,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          */
 
         int c = ctl.get();
-        // 1. 获取运行的线程数量
-        // 2.判断当前运行线程数量是否 < corePoolSize
+        // 1. 获取运行的线程数量,判断是否 < corePoolSize
         if (workerCountOf(c) < corePoolSize) {
             // 将当前command封装到Worker中并启动Worker中的线程,如果成功则返回true执行return返回
             if (addWorker(command, true))// 启动一个核心线程来执行任务
