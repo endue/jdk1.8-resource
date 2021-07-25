@@ -228,17 +228,16 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
                     available.await();
                 else {
                     // 首元素不为null
-                    // 获取首元素的过期时间
+                    // 获取首元素的剩余过期时间
                     long delay = first.getDelay(NANOSECONDS);
                     // 如果小于0，说明已到期，直接返回首元素
                     if (delay <= 0)
                         return q.poll();
                     // 如果没过期，首先将first置为null
-                    // 因为接下来要阻塞等待，而在阻塞等待期间可能first会被其他线程获取
-                    // 如果持有引用可能会引起内存泄漏
+                    // 因为接下来要阻塞等待，而在阻塞等待期间可能first会被其他线程获取，如果持有引用可能会引起内存泄漏
                     first = null; // don't retain ref while waiting
-                    // leader已经被占领，说明在等待期间，其他线程获取了首元素并正在处理
-                    // 那么当前线程直接进入条件队列，此时的方法为await没有超时时间
+                    // leader已经被占领，说明有其他线程排在当前线程前面获取元素
+                    // 当前线程直接去无限阻塞即可，此时的方法为await没有超时时间
                     if (leader != null)
                         available.await();
                     else {
@@ -246,9 +245,8 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
                         Thread thisThread = Thread.currentThread();
                         leader = thisThread;
                         try {
-                            // 当前线程进入条件队列，此时的方法为awaitNanos是有超时时间的，超时时间就是首元素的过期时间
-                            // 1.到达等待时间
-                            // 2.被其他线程唤醒
+                            // 当前线程进入条件队列，此时的方法为awaitNanos是有超时时间的，超时时间就是首元素的剩余过期时间
+                            // 被唤醒包括两种：1.到达等待时间 2.被其他线程唤醒
                             // 符合上述两个情况后，当前线程继续执行，清空leader并继续执行外层for循环再次尝试获取当前的首元素
                             available.awaitNanos(delay);
                         } finally {
@@ -279,7 +277,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      *         an expired delay becomes available
      * @throws InterruptedException {@inheritDoc}
      */
-    // 超时的poll，相比take，所有方法都是awaitNanos
+    // 超时的poll相比take，所有方法都是awaitNanos
     public E poll(long timeout, TimeUnit unit) throws InterruptedException {
         long nanos = unit.toNanos(timeout);
         final ReentrantLock lock = this.lock;
