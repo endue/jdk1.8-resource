@@ -140,7 +140,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * @throws IllegalArgumentException if {@code initialCapacity} is less
      *         than 1
      */
-    // 待初始容量的构造方法
+    // 自定义初始容量的构造方法
     public PriorityQueue(int initialCapacity) {
         this(initialCapacity, null);
     }
@@ -154,7 +154,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      *         natural ordering} of the elements will be used.
      * @since 1.8
      */
-    // 待指定比较器的构造方法，初始容量也是DEFAULT_INITIAL_CAPACITY
+    // 自定义指定比较器的构造方法，初始容量也是DEFAULT_INITIAL_CAPACITY
     public PriorityQueue(Comparator<? super E> comparator) {
         this(DEFAULT_INITIAL_CAPACITY, comparator);
     }
@@ -199,7 +199,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      *         of its elements are null
      */
     @SuppressWarnings("unchecked")
-    // 带集合参数的初始化
+    // 自定义集合参数的初始化
     public PriorityQueue(Collection<? extends E> c) {
         // 如果是SortedSet及其子类，初始化比较器，之后放入queue队列
         if (c instanceof SortedSet<?>) {
@@ -639,7 +639,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         // 为元素作为插入元素，插入到头元素的位置0
         // 头元素出队后数组还有其他元素
         if (s != 0)
-            // 插入为元素到位置0，执行下沉操作
+            // 插入尾元素到位置0，执行下沉操作
             siftDown(0, x);
         // 头元素出队
         return result;
@@ -695,8 +695,10 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      *
      * @param k the position to fill
      * @param x the item to insert
+     * 上浮: 将元素x插入k的位置时，可能会发生上浮操作
+     * 上浮操作发生在插入元素的时候，由于底层是个数组且插入位置为数组当前元素数量size的位置(可以认为就是数组"末尾"),
+     *          无论最小还是最大堆都需要判断是否上浮
      */
-    // 上浮: 将元素x插入k的位置时，可能会发生上浮操作
     private void siftUp(int k, E x) {
         if (comparator != null)
             siftUpUsingComparator(k, x);
@@ -716,7 +718,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
             if (key.compareTo((E) e) >= 0)
                 break;
             // 如果x的值比父节点小，说明x的父节点应该下沉，xx应该上浮
-            // 所以将x的父节点插入到x要插入的位置，x插入位置改为父节点之前的位置
+            // 所以将x的父节点插入到x要插入的位置，x插入父节点的位置
             // 继续while循环
             queue[k] = e;
             k = parent;
@@ -757,10 +759,14 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * key是待插入位置
+     * x是待插入值
+     */
     private void siftDownComparable(int k, E x) {
         Comparable<? super E> key = (Comparable<? super E>)x;
-        // half指向第一个叶子节点
-        // 当到达half时就没必要继续下沉了，因为没得下沉操作可执行
+        // half指向第一个叶子节点(数组下标从0开始，假设数组元素8，数组长度16，计算出half为4是第一个叶子节点)
+        // 当k≥half时就没必要继续下沉了，因为该位置没有任何的子节点，直接插入该位置即可
         int half = size >>> 1;        // loop while a non-leaf
         while (k < half) {
             // 获取插入位置左子节点的位置
