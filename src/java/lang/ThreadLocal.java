@@ -488,7 +488,7 @@ public class ThreadLocal<T> {
             if (e != null && e.get() == key)
                 return e;
             // 1.e != null && e.get() != key 当前ThreadLocal可能是有对应值的，但是由于hash冲突，在tabel数组的下标并不是i
-            // 2.e == null 当前ThreadLocal对应的下标位置没值
+            // 2.e == null 当前ThreadLocal对应的下标位置没值,这种情况key一定不再当前ThreadLocalMap中，因为在删除某ThreadLocal后，会把它后面的相关ThreadLocal向前移动，参考expungeStaleEntry()方法
             else
                 return getEntryAfterMiss(key, i, e);
         }
@@ -514,8 +514,10 @@ public class ThreadLocal<T> {
                     return e;
                 // 如果k为null，
                 if (k == null)
-                    // 清空该位置
-                    // 执行完该方法后，tabel数组中的entry很可能有的发生了位置变化
+                    // 清空该位置， 执行完该方法后，tabel数组中的entry很可能有的发生了位置变化
+                    // 思考：当多个ThreadLocal哈希值不同但取模后下标相同，然后放入ThreadLocalMap，这时由于冲突会向后查找空位置然后依次写入，
+                    // 所以当某个位置的ThreadLocal为null时，该位置的后续节点可能存在取模后下标相同ThreadLocal，这时需要往前移动这些取模后下标相同ThreadLocal
+                    // 这里也就说明了当get()操作获取某个位置的entry为null时，在调用getEntryAfterMiss()方法会直接返回null的原因
                     expungeStaleEntry(i);
                 // 如果k不为null
                 else
