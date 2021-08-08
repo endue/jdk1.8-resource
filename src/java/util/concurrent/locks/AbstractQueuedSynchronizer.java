@@ -435,7 +435,7 @@ public abstract class AbstractQueuedSynchronizer
          * CONDITION for condition nodes.  It is modified using CAS
          * (or when possible, unconditional volatile writes).
          */
-        // 上述四种状态，默认0
+        // 上述四种状态，默认0,表明node代表线程的状态
         volatile int waitStatus;
 
         /**
@@ -689,6 +689,9 @@ public abstract class AbstractQueuedSynchronizer
         Node s = node.next;
         if (s == null || s.waitStatus > 0) {
             s = null;
+            // head后继一般能直接通过next找到，但只有prev是肯定有效的(参考addWaiter()方法并发添加节点时会出现两个线程的node.prev指向同一个节点)
+            // 所以遇到next为null，肯定需要从队尾的prev往前找。
+            // 遇到next的状态为取消，也需要从队尾的prev往前找。
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
@@ -835,8 +838,7 @@ public abstract class AbstractQueuedSynchronizer
          */
         // Skip cancelled predecessors
         // 遍历AQS队列
-        // 从当前节点的前驱节点开始，直到遇到 waitStatus <= 0 节点后跳出循环
-        // 也就是将CANCELLED状态的节点从队列中删除
+        // 从当前节点的前驱节点开始，直到遇到 waitStatus <= 0 节点后跳出循环,也就是将CANCELLED状态的节点从队列中删除
         // 此时node.prev指向了它前面的第一个waitStatus <= 0的节点，如node.prev = A节点
         // 但是A节点的next还是指向原来的节点，如B节点,注意这个B节点状态是CANCELLED的
         /**
@@ -853,16 +855,22 @@ public abstract class AbstractQueuedSynchronizer
         // fail if not, in which case, we lost race vs another cancel
         // or signal, so no further action is necessary.
         // 获取B节点
+        // pred的后继无论如何都需要取消，因为即使前面while循环没有执行，
+        // 现在pred的后继（肯定是参数node，队列中添加节点会掉过cancel节点）也是一个马上取消掉的node。
+        // 之后有些CAS操作会尝试修改pred的后继，如果CAS失败，那么说明有别的线程在做
+        // 取消动作或通知动作，所以当前线程也不需要更多的动作了。
         Node predNext = pred.next;
 
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
         // 设置当前节点状态为CANCELLED
+        // 如果别的线程在执行这步之后，别的线程将会跳过这个node。
+        // 如果别的线程在执行这步之前，别的线程还是会将这个node当作有效节点
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
-        // 如果node节点已经是AQS队列尾结点了，由于被取消了，所以需要更新尾结点
+        // 如果参数node节点已经是AQS队列尾结点了，由于被取消了，所以需要更新尾结点
         // 更新尾结点指向A，然后设置A节点的next节点为null(因为B节点状态也是CANCELLED的)
         if (node == tail && compareAndSetTail(node, pred)) {
             /**
@@ -925,7 +933,7 @@ public abstract class AbstractQueuedSynchronizer
              * to signal it, so it can safely park.
              */
             return true;
-        if (ws > 0) {// 如果大于0，说明pred被CANCELLED，继续向头节点低调获取第一个 <= 0 节点
+        if (ws > 0) {// 如果大于0，说明pred被CANCELLED，继续向头节点查找第一个 <= 0 节点
             /*
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
@@ -959,6 +967,8 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if interrupted
      */
     // 阻塞当前线程，被唤醒后返回中断标识符同时清空中断标识符
+    // 如果是别的线程unpark了当前线程，那么调用Thread.interrupted()返回false。
+    // 如果是别的线程中断了当前线程，那么调用Thread.interrupted()返回true
     private final boolean parkAndCheckInterrupt() {
         LockSupport.park(this);
         return Thread.interrupted();
@@ -1115,7 +1125,7 @@ public abstract class AbstractQueuedSynchronizer
                     int r = tryAcquireShared(arg);
                     // r >= 0 获取读锁成功
                     if (r >= 0) {
-                        // 设置头结点并唤醒后续共享锁
+                        // 设置头结点并唤醒后续共享锁,r为剩余信号量
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
                         if (interrupted)
@@ -1372,6 +1382,7 @@ public abstract class AbstractQueuedSynchronizer
         //4.如果线程被中断，执行selfInterrupt，中断当前线程
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            // 调用selfInterrupt()方法将中断状态补上
             selfInterrupt();
     }
 
@@ -1845,7 +1856,7 @@ public abstract class AbstractQueuedSynchronizer
          */
         // 执行到这里说明 node.waitStatus != Node.CONDITION && node.prev != null 但是此时node.next == null
         // 从AQS队列中查找当前node节点,某个节点A调用await后，又恰巧被其他线程M唤醒，唤醒后M会在transferForSignal()方法中调用enq(node)把A入AQS队列，
-        // 但是enq存在并发风险也就是CAS失败的可能，所以需要遍历AQS队列，找到返回true，找不到返回false，注意一个unpark,可以抵消过去的一个park或者将来的一个park
+        // 但是enq存在并发风险也就是CAS失败的可能，所以需要从尾部遍历AQS队列，找到返回true，找不到返回false，注意一个unpark,可以抵消过去的一个park或者将来的一个park
         return findNodeFromTail(node);
     }
 
