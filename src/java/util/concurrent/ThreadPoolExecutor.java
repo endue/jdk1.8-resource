@@ -397,7 +397,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private static final int STOP       =  1 << COUNT_BITS;
     // 01000000 00000000 00000000 00000000
     private static final int TIDYING    =  2 << COUNT_BITS;
-    // 11000000 00000000 00000000 00000000
+    // 01100000 00000000 00000000 00000000
     private static final int TERMINATED =  3 << COUNT_BITS;
 
     // Packing and unpacking ctl
@@ -1545,9 +1545,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 // 执行拒绝策略
                 reject(command);
             // 两种情况执行else if
-            // 1.线程池状态是RUNNING,但是此时的corePoolSize初始化一定是设置为0了，所以启动非核心线程
-            // 2.线程池状态不是RUNNING && 从阻塞队列workQueue中移除当前任务失败
-            // 判断工作的线程数量 == 0
+            // 1.线程池状态是RUNNING,但是此时的workerCountOf为0说明corePoolSize初始化为了0，所以启动一个非核心线程执行任务
+            // 2.线程池状态不是RUNNING && 从阻塞队列workQueue中移除当前任务失败也没有工作的线程数量，启动一个非核心线程执行任务
             else if (workerCountOf(recheck) == 0)
                 // 创建一个新线程，获取阻塞队列workQueue中的任务并执行
                 addWorker(null, false);// 启动一个非核心线程来执行任务
