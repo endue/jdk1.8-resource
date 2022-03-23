@@ -674,7 +674,7 @@ public abstract class AbstractQueuedSynchronizer
          * fails or if status is changed by waiting thread.
          */
         int ws = node.waitStatus;
-        // 如果当前节点状态 < 0 则更新为0
+        // 如果当前节点状态 < 0 则更新为0，因为它后面的节点即将被唤醒了
         if (ws < 0)
             compareAndSetWaitStatus(node, ws, 0);
 
@@ -685,11 +685,12 @@ public abstract class AbstractQueuedSynchronizer
          * non-cancelled successor.
          */
         // 如果当前节点后继节点为null或者后继节点状态为CANCELLED，
+        // node.next为null是当node获取到锁后会被设置为head，然后将.next置为null
         // 则从队尾开始向前找最后一个节点状态 < 0 的节点
         Node s = node.next;
         if (s == null || s.waitStatus > 0) {
             s = null;
-            // head后继一般能直接通过next找到，但只有prev是肯定有效的(参考addWaiter()方法并发添加节点时会出现两个线程的node.prev指向同一个节点)
+            // head后继一般能直接通过next找到，但只有prev是肯定有效的({@link java.util.concurrent.locks.AbstractQueuedSynchronizer.addWaiter}方法并发添加节点时会出现两个线程的node.prev指向同一个节点)
             // 所以遇到next为null，肯定需要从队尾的prev往前找。
             // 遇到next的状态为取消，也需要从队尾的prev往前找。
             for (Node t = tail; t != null && t != node; t = t.prev)
@@ -2062,7 +2063,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     public class ConditionObject implements Condition, java.io.Serializable {
         private static final long serialVersionUID = 1173984872572414699L;
-        // 队列结果为单向链表
+        // 队列结构为单向链表
         /** First node of condition queue. */
         // 条件队列的头结点
         private transient Node firstWaiter;

@@ -547,7 +547,7 @@ public class ThreadLocal<T> {
             int len = tab.length;
             // 获取key对应的数组下标
             int i = key.threadLocalHashCode & (len-1);
-            // 从i的下一个位置开始遍历获取对应的entry，如果该位置entry不为null，判断执行两个操作
+            // 从i的位置开始遍历获取对应的entry，如果该位置entry不为null，判断执行两个操作
             for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
                 ThreadLocal<?> k = e.get();
                 // 如果位置的ThreadLocal和参数传进来的ThreadLocal一致，替换掉旧值
